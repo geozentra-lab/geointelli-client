@@ -1,1 +1,146 @@
-<router-outlet />
+<a class="skip-link" href="#main-content">Skip to content</a>
+@if (mobileOpen()) {
+  <button
+    class="nav-backdrop"
+    aria-label="Close navigation"
+    (click)="mobileOpen.set(false)"
+  ></button>
+}
+<aside id="workspace-navigation" class="sidebar" [class.mobileopen]="mobileOpen()">
+  <div class="brandrow">
+    <a class="brand" routerLink="/dashboard"><span class="brandmark">⌁</span>GeoZentra</a>
+    <button
+      id="nav-toggle-inside"
+      class="navcollapse"
+      type="button"
+      (click)="toggleNav()"
+      aria-label="Hide navigation"
+      title="Hide navigation"
+      aria-expanded="true"
+      aria-controls="workspace-navigation"
+    >
+      <gz-icon name="menu" />
+    </button>
+  </div>
+  <div class="navgroup">YOUR WORKSPACE</div>
+  <nav>
+    @for (item of nav; track item.path) {
+      <a [routerLink]="'/' + item.path" routerLinkActive="active"
+        ><gz-icon [name]="item.icon" /><span
+          >{{ item.title }}
+          @if (item.soon) {
+            <small class="navsoon">Soon</small>
+          }
+        </span></a
+      >
+    }
+  </nav>
+  <div class="sidebottom">
+    <nav>
+      <a routerLink="/settings" routerLinkActive="active"
+        ><gz-icon name="user" /><span>Profile & preferences</span></a
+      >
+      @if (w.auth.hasRealmRole('admin')) {
+        @for (item of adminNav; track item.path) {
+          <a [routerLink]="'/admin/' + item.path" routerLinkActive="active"
+            ><gz-icon [name]="item.icon" /><span>{{ item.title }}</span></a
+          >
+        }
+      }
+    </nav>
+    <div class="note">Intelligence for<br />every square foot.</div>
+  </div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <div class="crumb">
+      <!-- While the menu is open its own button (next to the logo) closes it. -->
+      @if (!navShown()) {
+        <button
+          id="nav-toggle-top"
+          class="iconbtn menuToggle"
+          type="button"
+          (click)="toggleNav()"
+          aria-label="Show navigation"
+          title="Show navigation"
+          aria-expanded="false"
+          aria-controls="workspace-navigation"
+        >
+          <gz-icon name="menu" />
+        </button>
+      }
+      <span>Workspace</span><span class="slash">/</span><b>{{ title() }}</b>
+    </div>
+    <div class="toptools">
+      <button
+        type="button"
+        class="btn small"
+        (click)="w.auth.isLoggedIn() ? w.signOut() : w.signIn()"
+      >
+        {{ w.auth.isLoggedIn() ? 'Sign out' : 'Sign in' }}</button
+      ><select
+        class="role"
+        [disabled]="!w.account().profile || w.account().savingProfile"
+        aria-label="Workspace persona"
+        #personaSelect
+        (change)="changePersona(personaSelect)"
+      >
+        @for (role of personas; track role) {
+          <option [value]="role" [selected]="role === w.user().role">{{ role }}</option>
+        }</select
+      ><gz-notification-menu /><a
+        class="avatar"
+        routerLink="/settings"
+        aria-label="Profile & preferences"
+        title="Profile & preferences"
+      >
+        @if (w.user().name) {
+          {{ w.user().name.slice(0, 1) }}
+        } @else {
+          <gz-icon name="user" />
+        }
+      </a>
+    </div>
+  </header>
+  <gz-network-status />
+  <main id="main-content" tabindex="-1" class="page"><router-outlet /></main>
+  <footer class="footer">
+    <span>GeoZentra © {{ year }}</span
+    ><span>Property intelligence, with evidence.</span>
+  </footer>
+</div>
+@if (route() !== 'compare') {
+  <gz-compare-tray />
+}
+<nav class="mobilebar">
+  @for (item of mobileNav; track item.path) {
+    <a [routerLink]="'/' + item.path" routerLinkActive="active"
+      ><gz-icon [name]="item.icon" />{{ item.label }}</a
+    >
+  }
+</nav>
+<!-- Live regions stay in the DOM so assistive tech is already watching them when text arrives. -->
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+  {{ w.ui().toastKind === 'info' ? w.ui().toast : '' }}
+</div>
+<div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+  {{ w.ui().toastKind === 'error' ? w.ui().toast : '' }}
+</div>
+<div
+  id="toast"
+  [class.show]="w.ui().toast"
+  [class.error]="w.ui().toastKind === 'error'"
+  [class.abovetray]="trayShown()"
+>
+  <span>{{ w.ui().toast }}</span>
+  @if (w.ui().toast) {
+    <button
+      type="button"
+      class="toast-close"
+      aria-label="Dismiss notification"
+      (click)="w.dismissToast()"
+    >
+      &times;
+    </button>
+  }
+</div>

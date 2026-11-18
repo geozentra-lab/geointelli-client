@@ -1,0 +1,218 @@
+import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
+import { Store } from '@ngrx/store';
+import { provideTestStore } from '../store';
+import { ComparableService } from './comparable.service';
+import { DashboardService } from './dashboard.service';
+import { ImportJobService } from './import-job.service';
+import { MapLayerService } from './map-layer.service';
+import { PropertyService } from './property.service';
+import { SavedSearchService } from './saved-search.service';
+import { ImportJobsActions as J } from '../store/import-jobs/import-jobs.actions';
+import { selectImportJobs } from '../store/import-jobs/import-jobs.selectors';
+import { retryError } from '../store/import-jobs/import-jobs.effects';
+import { AffordabilityActions } from '../store/affordability/affordability.actions';
+import { AffordabilityCard, missingText } from '../features/dashboard/finance-cards';
+import { PropertyFeatures } from '../features/property-detail/property-features';
+
+describe('Backend master endpoints the client now uses', () => {
+  let http: HttpTestingController;
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        ...provideTestStore(),
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => http.verify());
+
+  it('calls each endpoint with the documented path and parameters', () => {
+    TestBed.inject(ComparableService)
+      .candidates(301400, { radiusMeters: 800, months: 12 })
+      .subscribe();
+    const candidates = http.expectOne((r) =>
+      r.url.endsWith('/properties/id/301400/comparables/candidates'),
+    );
+    expect(candidates.request.params.get('radiusMeters')).toBe('800');
+    candidates.flush({});
+
+    TestBed.inject(PropertyService)
+      .extraFeatures(5, { history: true, page: 1, size: 25 })
+      .subscribe();
+    const features = http.expectOne((r) => r.url.endsWith('/properties/id/5/extra-features'));
+    expect(features.request.params.get('history')).toBe('true');
+    features.flush({});
+
+    TestBed.inject(SavedSearchService).results(9, 0, 8).subscribe();
+    const results = http.expectOne((r) => r.url.endsWith('/saved-searches/9/results'));
+    expect(results.request.params.get('size')).toBe('8');
+    results.flush({});
+
+    const dashboards = TestBed.inject(DashboardService);
+    dashboards.affordability({ annualGrossIncome: 120000, downPayment: 0 }).subscribe();
+    const aff = http.expectOne((r) => r.url.endsWith('/dashboards/user/affordability'));
+    // Zero is a real input; missing inputs are left out, never sent as zero.
+    expect(aff.request.params.get('downPayment')).toBe('0');
+    expect(aff.request.params.has('monthlyDebtPayments')).toBe(false);
+    aff.flush({});
+    dashboards.mortgageContext().subscribe();
+    const mortgage = http.expectOne((r) => r.url.endsWith('/dashboards/lender/mortgage-context'));
+    expect(mortgage.request.params.keys()).toEqual([]);
+    mortgage.flush({});
+
+    TestBed.inject(MapLayerService).layers().subscribe();
+    http.expectOne((r) => r.url.endsWith('/map/layers')).flush([]);
+
+    const jobs = TestBed.inject(ImportJobService);
+    jobs.retry('4f1c7d2e-9b2a').subscribe();
+    const retry = http.expectOne((r) => r.url.endsWith('/admin/import-jobs/4f1c7d2e-9b2a/retry'));
+    expect(retry.request.method).toBe('POST');
+    retry.flush({});
+    const file = new File(['folio\n1'], 'sales.csv');
+    jobs.importCsv('sales', file, 'Miami-Dade', 'FL').subscribe();
+    const upload = http.expectOne((r) => r.url.endsWith('/ingestion/import/sales'));
+    const body = upload.request.body as FormData;
+    expect([body.get('county'), body.get('sourceState'), (body.get('file') as File).name]).toEqual([
+      'Miami-Dade',
+      'FL',
+      'sales.csv',
+    ]);
+    upload.flush({});
+  });
+
+  it('opens the retried job and explains a refused retry', () => {
+    const store = TestBed.inject(Store);
+    store.dispatch(J.retry({ id: 'old' }));
+    http
+      .expectOne((r) => r.url.endsWith('/admin/import-jobs/old/retry'))
+      .flush(
+        { id: 'new', retryOfJobId: 'old', status: 'QUEUED' },
+        { status: 202, statusText: 'Accepted' },
+      );
+    expect(store.selectSignal(selectImportJobs)()).toMatchObject({
+      selectedId: 'new',
+      retrying: null,
+    });
+    // The list refreshes so the new attempt appears.
+    http
+      .expectOne((r) => r.url.endsWith('/admin/import-jobs'))
+      .flush({
+        jobs: { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 },
+        untrackedJobTypes: [],
+        note: null,
+      });
+    const refused = new HttpErrorResponse({
+      status: 409,
+      error: { message: 'INPUT_UNAVAILABLE: the staged file was removed' },
+    });
+    expect(retryError(refused)).toBe('Retry refused: its input files are no longer available.');
+  });
+
+  it('feeds the affordability card the last studio inputs and never invents figures', () => {
+    expect(missingText(['annualGrossIncome', 'downPayment', 'loanTermYears'])).toBe(
+      'annual income, down payment and loan term',
+    );
+    const fixture = TestBed.createComponent(AffordabilityCard);
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.endsWith('/dashboards/user/affordability'))
+      .flush({
+        status: 'INCOMPLETE',
+        generatedAt: '2026-11-11T10:00:00',
+        missingInputs: ['annualGrossIncome', 'monthlyDebtPayments'],
+        affordability: null,
+      });
+    fixture.detectChanges();
+    const text = () => (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+    expect(text()).toContain('Enter your annual income and monthly debts');
+    expect(text()).not.toContain('$');
+
+    const request = {
+      annualGrossIncome: 120000,
+      monthlyDebtPayments: 400,
+      downPayment: 60000,
+      annualInterestRate: 6.5,
+      loanTermYears: 30,
+    };
+    TestBed.inject(Store).dispatch(AffordabilityActions.calculate({ request }));
+    // The studio's own calculation also runs; only the card request matters here.
+    http.expectOne((r) => r.url.endsWith('/calculations/affordability')).flush({});
+    fixture.detectChanges();
+    const card = http.expectOne((r) => r.url.endsWith('/dashboards/user/affordability'));
+    expect(card.request.params.get('annualGrossIncome')).toBe('120000');
+    card.flush({
+      status: 'OK',
+      generatedAt: '2026-11-11T10:00:00',
+      missingInputs: [],
+      affordability: {
+        maxHomePrice: 452000,
+        maxLoanAmount: 392000,
+        maxMonthlyHousingPayment: 2800,
+        assumptions: {
+          frontEndRatioPercent: 28,
+          backEndRatioPercent: 36,
+          annualInterestRate: 6.5,
+          loanTermYears: 30,
+          rateSource: 'Supplied by the user',
+        },
+        disclaimer: 'Not a loan offer.',
+      },
+    });
+    fixture.detectChanges();
+    expect(text()).toContain('$452,000');
+    expect(text()).toContain('28/36 rule');
+  });
+
+  it('lists a building’s units and shows missing feature values as unavailable', () => {
+    const fixture = TestBed.createComponent(PropertyFeatures);
+    fixture.componentRef.setInput('propertyId', 77);
+    fixture.detectChanges();
+    http
+      .expectOne((r) => r.url.endsWith('/properties/id/77/extra-features'))
+      .flush({
+        propertyId: 77,
+        rollYear: 2026,
+        history: false,
+        page: 0,
+        size: 25,
+        totalElements: 1,
+        totalPages: 1,
+        features: [
+          {
+            description: 'Pool 8 ft res avg',
+            units: 450,
+            actualYearBuilt: 1999,
+            percentCondition: null,
+            depreciatedValue: null,
+            rollYear: 2026,
+            useCode: null,
+            adjustedUnitPrice: null,
+            message: null,
+          },
+        ],
+      });
+    http
+      .expectOne((r) => r.url.endsWith('/properties/id/77/children'))
+      .flush({
+        content: [{ id: 78, folio: '0131', address: { unit: '4B' }, bedroomCount: 2 }],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+      });
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain('2026 roll year');
+    expect(text).toContain('Pool 8 ft res avg');
+    expect(text).toContain('Not available');
+    expect(text).not.toContain('$0');
+    expect(text).toContain('Units in this building');
+    expect(text).toContain('Unit 4B');
+  });
+});

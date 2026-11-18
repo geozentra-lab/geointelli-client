@@ -1,0 +1,204 @@
+<gz-heading
+  eyebrow="INVESTMENT STUDIO"
+  title="Good decisions start with your numbers."
+  subtitle="Estimate what you can afford, model payments, and test a rental's returns."
+>
+  @if (propertyId(); as id) {
+    <a class="btn" [routerLink]="['/property', id]">Back to property</a>
+  }
+</gz-heading>
+@if (propertyId() && w.catalog().detailError) {
+  <p class="insight warning section" role="alert">
+    The property you opened could not be loaded ({{ w.catalog().detailError }}). You can still model
+    payments with your own figures.
+  </p>
+}
+@if (propertyId() && w.catalog().detail; as p) {
+  <p class="insight section">
+    Modelling {{ p.address?.address || 'folio ' + p.folio }}. Enter your own price assumption;
+    assessments and past sales are not market values.
+  </p>
+}
+<div class="tabs" role="tablist" aria-label="Calculator">
+  @for (t of tabs; track t[0]) {
+    <button
+      type="button"
+      role="tab"
+      [id]="'studio-tab-' + t[0]"
+      [attr.aria-selected]="mode() === t[0]"
+      [attr.aria-controls]="'studio-panel'"
+      [attr.tabindex]="mode() === t[0] ? 0 : -1"
+      [class.active]="mode() === t[0]"
+      (keydown)="onTabKey($event)"
+      [attr.data-tab]="t[0]"
+      (click)="mode.set(t[0])"
+    >
+      {{ t[1] }}
+    </button>
+  }
+</div>
+<div role="tabpanel" id="studio-panel" [attr.aria-labelledby]="'studio-tab-' + mode()">
+  <!-- Both panels stay mounted so switching tabs keeps what the user typed. -->
+  <gz-affordability-calculator [hidden]="mode() !== 'affordability'" />
+  <gz-rental-analysis [hidden]="mode() !== 'rental'" [propertyId]="propertyId()" />
+  <div [hidden]="mode() !== 'mortgage'">
+    <div class="grid cols2">
+      <form class="panel" #form="ngForm" (ngSubmit)="form.valid && calculate()">
+        <h3>Your assumptions</h3>
+        <div class="formgrid section">
+          <div class="formfield">
+            <label for="price">Purchase price ($)</label
+            ><input
+              id="price"
+              name="price"
+              type="number"
+              min="0.01"
+              step="0.01"
+              [(ngModel)]="price"
+              required
+            />
+          </div>
+          <div class="formfield">
+            <label for="downPayment">Down payment ($)</label
+            ><input
+              id="downPayment"
+              name="downPayment"
+              type="number"
+              min="0"
+              [max]="price ?? 9999999999999"
+              step="0.01"
+              [(ngModel)]="downPayment"
+              required
+            />
+          </div>
+          <div class="formfield">
+            <label for="rate">Annual interest rate (%)</label
+            ><input
+              id="rate"
+              name="rate"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              [(ngModel)]="annualInterestRate"
+              required
+            />
+          </div>
+          <div class="formfield">
+            <label for="term">Loan term (years)</label
+            ><input
+              id="term"
+              name="term"
+              type="number"
+              min="1"
+              max="50"
+              step="1"
+              [(ngModel)]="loanTermYears"
+              required
+            />
+          </div>
+          <div class="formfield">
+            <label for="tax">Annual property tax ($, optional)</label
+            ><input
+              id="tax"
+              name="tax"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="annualPropertyTax"
+            />
+          </div>
+          <div class="formfield">
+            <label for="insurance">Annual home insurance ($, optional)</label
+            ><input
+              id="insurance"
+              name="insurance"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="annualHomeInsurance"
+            />
+          </div>
+          <div class="formfield">
+            <label for="hoa">Monthly HOA ($, optional)</label
+            ><input
+              id="hoa"
+              name="hoa"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="monthlyHoaFees"
+            />
+          </div>
+        </div>
+        <button class="btn primary spacer" [disabled]="form.invalid || state().loading">
+          Calculate
+        </button>
+        <p class="sourcedata">
+          Leave unknown costs blank. Zero means a known zero cost. These assumptions do not change
+          the property record.
+        </p>
+      </form>
+      <div>
+        <gz-request-status
+          [loading]="state().loading"
+          [error]="state().error"
+          (retry)="calculate()"
+        />
+        @if (state().response; as c) {
+          <div class="panel darkpanel">
+            <h3>Monthly known costs</h3>
+            <div class="bigvalue">
+              {{ c.totalMonthlyKnownCosts | currency: 'USD' : 'symbol' : '1.2-2' }}
+            </div>
+            <div class="lineitem">
+              <span>Principal & interest</span
+              ><strong>{{
+                c.monthlyPrincipalAndInterest | currency: 'USD' : 'symbol' : '1.2-2'
+              }}</strong>
+            </div>
+            <div class="lineitem">
+              <span>Property tax</span
+              ><strong>{{
+                c.monthlyPropertyTax === null
+                  ? 'Not supplied'
+                  : (c.monthlyPropertyTax | currency: 'USD' : 'symbol' : '1.2-2')
+              }}</strong>
+            </div>
+            <div class="lineitem">
+              <span>Home insurance</span
+              ><strong>{{
+                c.monthlyInsurance === null
+                  ? 'Not supplied'
+                  : (c.monthlyInsurance | currency: 'USD' : 'symbol' : '1.2-2')
+              }}</strong>
+            </div>
+            <div class="lineitem">
+              <span>HOA</span
+              ><strong>{{
+                c.monthlyHoaFees === null
+                  ? 'Not supplied'
+                  : (c.monthlyHoaFees | currency: 'USD' : 'symbol' : '1.2-2')
+              }}</strong>
+            </div>
+            <div class="lineitem">
+              <span>Loan amount</span
+              ><strong>{{ c.loanAmount | currency: 'USD' : 'symbol' : '1.2-2' }}</strong>
+            </div>
+            <p class="sourcedata">
+              The total includes only supplied costs. Unknown costs are excluded, not assumed to be
+              zero.
+            </p>
+          </div>
+        } @else {
+          <div class="panel">
+            <h3>Build your financing scenario</h3>
+            <p class="sub spacer">
+              Enter your purchase and financing assumptions to calculate a cost breakdown.
+            </p>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</div>

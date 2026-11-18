@@ -1,0 +1,653 @@
+<gz-heading
+  eyebrow="LENDING"
+  title="Track every application, stage by stage."
+  subtitle="Record loan applications for your organization, follow the pipeline and import partner snapshots."
+/>
+@if (!w.auth.isLoggedIn()) {
+  <div class="panel section guest-notice">
+    <h3>Keep your application pipeline in one place.</h3>
+    <p class="sub spacer">
+      Sign in to create or join a lending organization and track its applications. Records are
+      visible only to members of the organization.
+    </p>
+    <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
+  </div>
+} @else {
+  <p class="insight section">
+    This workspace records application status only. Moving an application to Approved or Funded does
+    not approve credit or transfer any funds.
+  </p>
+  <gz-request-status
+    [loading]="lender().organizationsLoading && !lender().organizationsLoaded"
+    loadingText="Loading your organizations…"
+    [error]="lender().organizationsError"
+    (retry)="reload()"
+  />
+  @if (lender().organizationsLoaded) {
+    @if (!lender().organizations.length || showNewOrg()) {
+      <form class="panel section" #of="ngForm" (ngSubmit)="of.valid && createOrganization()">
+        @if (!lender().organizations.length) {
+          <h3>Create your lending organization</h3>
+          <p class="sub spacer">
+            You are not a member of any organization yet. Create one to start tracking applications;
+            you become its owner and can give teammates access. To join an existing organization,
+            ask its owner to add your user ID{{
+              w.account().profile ? ' (' + w.account().profile!.id + ')' : ''
+            }}.
+          </p>
+        } @else {
+          <h3>New organization</h3>
+        }
+        <fieldset class="filterbar spacer" [disabled]="lender().saving > 0">
+          <div class="formfield">
+            <label for="orgName">Organization name</label
+            ><input
+              id="orgName"
+              name="orgName"
+              [(ngModel)]="orgName"
+              maxlength="160"
+              required
+              autocomplete="organization"
+            />
+          </div>
+          <button class="btn primary" [disabled]="of.invalid || lender().saving > 0">
+            {{
+              lender().pendingWrite === 'organization' && lender().saving
+                ? 'Creating…'
+                : 'Create organization'
+            }}
+          </button>
+          @if (lender().organizations.length) {
+            <button type="button" class="btn" (click)="showNewOrg.set(false)">Cancel</button>
+          }
+        </fieldset>
+        @if (lender().pendingWrite === 'organization') {
+          <gz-request-status [error]="lender().saveError" [showRetry]="false" />
+        }
+      </form>
+    }
+    @if (organization(); as org) {
+      <div class="panel section org-bar">
+        @if (lender().organizations.length > 1) {
+          <div class="formfield">
+            <label for="orgSelect">Organization</label
+            ><select
+              id="orgSelect"
+              [ngModel]="org.id"
+              (ngModelChange)="chooseOrganization($event)"
+              [disabled]="lender().saving > 0"
+            >
+              @for (o of lender().organizations; track o.id) {
+                <option [ngValue]="o.id">{{ o.name }}</option>
+              }
+            </select>
+          </div>
+        } @else {
+          <div>
+            <span class="smalltext muted">Organization</span>
+            <h3>{{ org.name }}</h3>
+          </div>
+        }
+        <span class="tag" [class.green]="isOwner()">{{ isOwner() ? 'Owner' : 'Member' }}</span>
+        <span class="grow"></span>
+        @if (!showNewOrg()) {
+          <button type="button" class="btn small" (click)="showNewOrg.set(true)">
+            New organization
+          </button>
+        }
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Lending workspace">
+        @for (t of tabs; track t[0]) {
+          <button
+            type="button"
+            role="tab"
+            [id]="'lender-tab-' + t[0]"
+            [attr.data-tab]="t[0]"
+            [attr.aria-controls]="'lender-panel-' + t[0]"
+            [attr.aria-selected]="tab() === t[0]"
+            [attr.tabindex]="tab() === t[0] ? 0 : -1"
+            [class.active]="tab() === t[0]"
+            (keydown)="onTabKey($event)"
+            (click)="select(t[0])"
+          >
+            {{ t[1] }}
+          </button>
+        }
+      </div>
+      <div
+        role="tabpanel"
+        [id]="'lender-panel-' + tab()"
+        [attr.aria-labelledby]="'lender-tab-' + tab()"
+        tabindex="0"
+      >
+        @switch (tab()) {
+          @case ('pipeline') {
+            <gz-request-status
+              [loading]="lender().pipelineLoading && !lender().pipeline"
+              loadingText="Summarizing the pipeline…"
+              [error]="lender().pipelineError"
+              (retry)="loadPipeline()"
+            />
+            @if (lender().pipeline; as p) {
+              <div class="grid cols4 section">
+                <gz-metric
+                  label="Applications"
+                  [value]="p.total"
+                  detail="All recorded, any stage"
+                />
+                <gz-metric
+                  label="Approved"
+                  [value]="p.approvedCount"
+                  [detail]="
+                    (p.approvedAmount | currency: 'USD' : 'symbol' : '1.0-0') + ' requested'
+                  "
+                  [positive]="p.approvedCount > 0"
+                />
+                <gz-metric
+                  label="Funded"
+                  [value]="p.fundedCount"
+                  [detail]="(p.fundedAmount | currency: 'USD' : 'symbol' : '1.0-0') + ' requested'"
+                  [positive]="p.fundedCount > 0"
+                />
+                <gz-metric
+                  label="In review"
+                  [value]="(p.stages.UNDER_REVIEW?.count ?? 0) + (p.stages.SUBMITTED?.count ?? 0)"
+                  detail="Submitted or under review"
+                />
+              </div>
+              <div class="panel section">
+                <div class="panelhead">
+                  <h3>By stage</h3>
+                  <span class="smalltext muted"
+                    >Count and requested amount · select a stage to list it</span
+                  >
+                </div>
+                <gz-stage-bars
+                  [rows]="stageRows()"
+                  label="Applications by stage"
+                  (picked)="openStage($event)"
+                />
+                <p class="sourcedata">
+                  Current-status counts and requested amounts in {{ p.currency }}, as of
+                  {{ p.asOf | date: 'medium' }}. Approved totals include funded applications.
+                  @if (p.scope) {
+                    {{ p.scope }}
+                  }
+                </p>
+              </div>
+              @if (!p.total) {
+                <div class="empty section">
+                  No applications recorded yet.
+                  <button type="button" class="btn primary spacer" (click)="select('applications')">
+                    Record an application
+                  </button>
+                </div>
+              }
+            }
+          }
+          @case ('applications') {
+            <form class="panel section" #af="ngForm" (ngSubmit)="af.valid && createApplication()">
+              <h3>Record an application</h3>
+              <fieldset class="formgrid section" [disabled]="lender().saving > 0">
+                <div class="formfield">
+                  <label for="appName">Applicant name</label
+                  ><input
+                    id="appName"
+                    name="applicantName"
+                    [(ngModel)]="application.applicantName"
+                    maxlength="160"
+                    required
+                  />
+                </div>
+                <div class="formfield">
+                  <label for="appAmount">Requested amount ($)</label
+                  ><input
+                    id="appAmount"
+                    name="requestedAmount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    [(ngModel)]="application.requestedAmount"
+                    required
+                  />
+                </div>
+                <div class="formfield">
+                  <label for="appLoanType">Loan type</label
+                  ><select id="appLoanType" name="loanType" [(ngModel)]="application.loanType">
+                    @for (t of loanTypes; track t) {
+                      <option [value]="t">{{ loanType(t) }}</option>
+                    }
+                  </select>
+                </div>
+                <div class="formfield">
+                  <label for="appEmail">Applicant email (optional)</label
+                  ><input
+                    id="appEmail"
+                    name="applicantEmail"
+                    type="email"
+                    maxlength="254"
+                    email
+                    [(ngModel)]="application.applicantEmail"
+                  />
+                </div>
+                <gz-property-picker
+                  class="full"
+                  label="Property (optional)"
+                  [propertyId]="application.propertyId"
+                  [disabled]="lender().saving > 0"
+                  (selected)="application.propertyId = $event"
+                />
+                <div class="formfield full">
+                  <label for="appNotes">Notes (optional)</label
+                  ><textarea
+                    class="field"
+                    id="appNotes"
+                    name="notes"
+                    rows="2"
+                    maxlength="2000"
+                    [(ngModel)]="application.notes"
+                  ></textarea>
+                </div>
+                <div class="actions">
+                  <button
+                    class="btn primary"
+                    [disabled]="af.invalid || !applicationValid() || lender().saving > 0"
+                  >
+                    {{
+                      lender().pendingWrite === 'application' && lender().saving
+                        ? 'Saving…'
+                        : 'Save as draft'
+                    }}
+                  </button>
+                </div>
+              </fieldset>
+              @if (lender().pendingWrite === 'application') {
+                <gz-request-status [error]="lender().saveError" [showRetry]="false" />
+              }
+            </form>
+
+            <div class="panel section">
+              <div class="panelhead">
+                <h3>Applications</h3>
+                <div class="inline-filter">
+                  <label for="appStageFilter">Stage</label
+                  ><select
+                    id="appStageFilter"
+                    [ngModel]="lender().stage"
+                    (ngModelChange)="filterStage($event)"
+                  >
+                    <option [ngValue]="null">All stages</option>
+                    @for (s of stages; track s) {
+                      <option [ngValue]="s">{{ label(s) }}</option>
+                    }
+                  </select>
+                </div>
+              </div>
+              @if (lender().pendingWrite === 'update') {
+                <gz-request-status [error]="lender().saveError" [showRetry]="false" />
+              }
+              <gz-request-status
+                [loading]="lender().applicationsLoading && !lender().applicationsLoaded"
+                loadingText="Loading applications…"
+                [error]="lender().applicationsError"
+                (retry)="loadApplications(lender().page)"
+              />
+              @for (app of lender().applications; track app.id) {
+                <section class="app-row">
+                  <div class="app-main">
+                    <strong>{{ app.applicantName }}</strong>
+                    <span
+                      class="tag"
+                      [class.green]="app.stage === 'APPROVED' || app.stage === 'FUNDED'"
+                      [class.amber]="app.stage === 'UNDER_REVIEW' || app.stage === 'SUBMITTED'"
+                      >{{ label(app.stage) }}</span
+                    >
+                    <p>
+                      {{ loanType(app.loanType) }} · requested
+                      {{
+                        app.requestedAmount | currency: app.currency || 'USD' : 'symbol' : '1.0-2'
+                      }}
+                      @if (app.approvedAmount !== null) {
+                        · approved
+                        {{
+                          app.approvedAmount | currency: app.currency || 'USD' : 'symbol' : '1.0-2'
+                        }}
+                      }
+                      @if (app.fundedAmount !== null) {
+                        · funded
+                        {{
+                          app.fundedAmount | currency: app.currency || 'USD' : 'symbol' : '1.0-2'
+                        }}
+                      }
+                    </p>
+                    <p>
+                      @if (app.applicantEmail) {
+                        {{ app.applicantEmail }} ·
+                      }
+                      @if (app.propertyId) {
+                        <gz-property-ref [propertyId]="app.propertyId" /> ·
+                      }
+                      @if (app.source) {
+                        Imported from {{ app.source }}
+                        @if (app.externalId) {
+                          ({{ app.externalId }})
+                        }
+                        ·
+                      }
+                      Updated {{ app.updatedAt | date: 'medium' }}
+                    </p>
+                    @if (app.approvedAt || app.fundedAt) {
+                      <p class="smalltext">
+                        @if (app.approvedAt) {
+                          Approved {{ app.approvedAt | date: 'mediumDate' }}
+                        }
+                        @if (app.fundedAt) {
+                          · Funded {{ app.fundedAt | date: 'mediumDate' }}
+                        }
+                      </p>
+                    }
+                    @if (app.notes) {
+                      <p>{{ app.notes }}</p>
+                    }
+                    @if (app.propertyId) {
+                      @let c = lender().collateral[app.id];
+                      @if (c?.value; as v) {
+                        <p class="ltv">
+                          @if (v.ltv.percent !== null) {
+                            <b>LTV {{ v.ltv.percent | number: '1.0-2' }}%</b>
+                            · {{ basis(v) }} against a ZentraValue of
+                            {{ v.collateral?.value | currency: 'USD' : 'symbol' : '1.0-0' }}
+                            @if (v.collateral?.valuationDate) {
+                              ({{ v.collateral!.valuationDate | date: 'mediumDate' }})
+                            }
+                            @if (v.ltv.status === 'LIMITED') {
+                              <span class="tag amber">Limited valuation</span>
+                            }
+                          } @else {
+                            LTV unavailable: {{ ltvWhy(v) }}
+                          }
+                        </p>
+                        <p class="smalltext muted">{{ v.disclaimer }}</p>
+                      } @else if (c?.error) {
+                        <p class="field-error" role="alert">
+                          The LTV could not be checked. {{ c!.error }}
+                        </p>
+                      }
+                    }
+                    @if (moving(); as m) {
+                      @if (m.id === app.id) {
+                        <form class="move" (ngSubmit)="move(app, m.stage)">
+                          @if (m.stage === 'APPROVED') {
+                            <div class="formfield">
+                              <label [for]="'approved-' + app.id"
+                                >Approved amount ($, up to
+                                {{
+                                  app.requestedAmount | currency: 'USD' : 'symbol' : '1.0-2'
+                                }})</label
+                              ><input
+                                [id]="'approved-' + app.id"
+                                name="approvedAmount"
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                [max]="app.requestedAmount"
+                                [(ngModel)]="approvedAmount"
+                                required
+                              />
+                            </div>
+                          } @else {
+                            <div class="formfield">
+                              <label [for]="'funded-' + app.id"
+                                >Funded amount ($, up to
+                                {{
+                                  app.approvedAmount | currency: 'USD' : 'symbol' : '1.0-2'
+                                }})</label
+                              ><input
+                                [id]="'funded-' + app.id"
+                                name="fundedAmount"
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                [max]="app.approvedAmount"
+                                [(ngModel)]="fundedAmount"
+                                required
+                              />
+                            </div>
+                          }
+                          @if (moveError(app); as err) {
+                            <p class="field-error" role="alert">{{ err }}</p>
+                          }
+                          <div class="actions spacer">
+                            <button
+                              class="btn primary small"
+                              [disabled]="!!moveError(app) || lender().saving > 0"
+                            >
+                              Mark {{ label(m.stage).toLowerCase() }}
+                            </button>
+                            <button type="button" class="btn small" (click)="moving.set(null)">
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      }
+                    }
+                  </div>
+                  <div class="actions">
+                    @for (next of nextStages(app.stage); track next) {
+                      <button
+                        type="button"
+                        class="btn small"
+                        [class.primary]="next !== 'WITHDRAWN' && next !== 'REJECTED'"
+                        [disabled]="lender().saving > 0"
+                        (click)="startMove(app, next)"
+                      >
+                        {{
+                          next === 'WITHDRAWN'
+                            ? 'Withdraw'
+                            : next === 'REJECTED'
+                              ? 'Reject'
+                              : 'Move to ' + label(next)
+                        }}
+                      </button>
+                    } @empty {
+                      <span class="smalltext muted">Final stage</span>
+                    }
+                    @if (app.propertyId) {
+                      <button
+                        type="button"
+                        class="btn small ghost"
+                        [disabled]="lender().collateral[app.id]?.loading"
+                        (click)="checkLtv(app.id)"
+                      >
+                        {{
+                          lender().collateral[app.id]?.loading
+                            ? 'Checking…'
+                            : lender().collateral[app.id]?.value
+                              ? 'Recheck LTV'
+                              : 'Check LTV'
+                        }}
+                      </button>
+                    }
+                  </div>
+                </section>
+              } @empty {
+                @if (lender().applicationsLoaded && !lender().applicationsLoading) {
+                  <div class="empty">
+                    {{
+                      lender().stage
+                        ? 'No applications in this stage.'
+                        : 'No applications recorded yet. Use the form above or import a partner snapshot.'
+                    }}
+                  </div>
+                }
+              }
+              <gz-pagination
+                [page]="lender().page"
+                [pages]="lender().totalPages"
+                [total]="lender().totalElements"
+                [loading]="lender().applicationsLoading"
+                (changed)="loadApplications($event)"
+              />
+            </div>
+          }
+          @case ('import') {
+            <form class="panel section" (ngSubmit)="runImport()">
+              <h3>Import partner snapshots</h3>
+              <p class="sub spacer">
+                Paste JSON with a <code>source</code> name and 1–{{ maxRows }} <code>rows</code>.
+                Each row needs <code>externalId</code>, <code>applicantName</code>,
+                <code>requestedAmount</code>, <code>currency</code> ("USD") and <code>stage</code>.
+                Approved and funded rows also need their amounts and UTC dates. Re-importing the
+                same row changes nothing; rows are saved one by one, so a rejected row does not undo
+                the others.
+              </p>
+              <div class="formfield spacer">
+                <label for="importJson">Snapshot JSON</label
+                ><textarea
+                  class="field json"
+                  id="importJson"
+                  name="importJson"
+                  rows="12"
+                  spellcheck="false"
+                  [(ngModel)]="importText"
+                  (ngModelChange)="importError.set(null)"
+                  aria-describedby="import-error"
+                ></textarea>
+              </div>
+              @if (importError(); as err) {
+                <p id="import-error" class="insight danger spacer" role="alert">{{ err }}</p>
+              }
+              <div class="actions spacer">
+                <button class="btn primary" [disabled]="!importText.trim() || lender().saving > 0">
+                  {{
+                    lender().pendingWrite === 'import' && lender().saving ? 'Importing…' : 'Import'
+                  }}
+                </button>
+                <button type="button" class="btn" (click)="useExample()">Insert example</button>
+              </div>
+              @if (lender().pendingWrite === 'import') {
+                <gz-request-status [error]="lender().saveError" [showRetry]="false" />
+              }
+            </form>
+            @if (lender().importResult; as r) {
+              <div class="panel section" aria-live="polite">
+                <h3>Import result</h3>
+                <div class="grid cols4 spacer">
+                  <gz-metric label="Created" [value]="r.created" [positive]="r.created > 0" />
+                  <gz-metric label="Updated" [value]="r.updated" />
+                  <gz-metric label="Unchanged" [value]="r.unchanged" />
+                  <gz-metric
+                    label="Rejected"
+                    [value]="r.rejected"
+                    [detail]="r.rejected ? 'See the rows below' : 'None'"
+                  />
+                </div>
+                <div class="tablewrap spacer">
+                  <table>
+                    <caption class="sr-only">
+                      Outcome of each imported row
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Row</th>
+                        <th scope="col">Result</th>
+                        <th scope="col">Application</th>
+                        <th scope="col">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of r.rows; track row.row) {
+                        <tr>
+                          <td>{{ row.row }}</td>
+                          <td>
+                            <span
+                              class="tag"
+                              [class.green]="row.status === 'CREATED'"
+                              [class.amber]="row.status === 'REJECTED'"
+                              >{{ row.status | label }}</span
+                            >
+                          </td>
+                          <td>{{ row.applicationId ?? '—' }}</td>
+                          <td>{{ importErrorText(row.errorCode) || '—' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            }
+          }
+          @case ('team') {
+            <div class="panel section">
+              <h3>Team access</h3>
+              <p class="sub spacer">
+                Every member can record and update this organization's applications.
+                @if (isOwner()) {
+                  As the owner, you can add teammates by their GeoZentra user ID (shown on their
+                  Profile page) and remove them.
+                } @else {
+                  Only the owner can change who has access.
+                }
+              </p>
+              <gz-request-status
+                [loading]="lender().membersLoading && !lender().members.length"
+                loadingText="Loading members…"
+                [error]="lender().membersError"
+                (retry)="loadMembers()"
+              />
+              <ul class="spacer member-list">
+                @for (id of lender().members; track id) {
+                  <li class="lineitem">
+                    <span
+                      >User {{ id }}
+                      @if (id === org.ownerUserId) {
+                        <span class="tag green">Owner</span>
+                      }
+                      @if (id === w.account().profile?.id) {
+                        <span class="tag">You</span>
+                      }
+                    </span>
+                    @if (isOwner() && id !== org.ownerUserId) {
+                      <button
+                        type="button"
+                        class="btn small"
+                        [disabled]="lender().saving > 0"
+                        (click)="removeMember(id)"
+                        [attr.aria-label]="'Remove access for user ' + id"
+                      >
+                        Remove
+                      </button>
+                    }
+                  </li>
+                }
+              </ul>
+              @if (isOwner()) {
+                <form class="filterbar spacer" #mf="ngForm" (ngSubmit)="mf.valid && addMember()">
+                  <div class="formfield">
+                    <label for="memberId">User ID</label
+                    ><input
+                      id="memberId"
+                      name="memberId"
+                      type="number"
+                      min="1"
+                      step="1"
+                      [(ngModel)]="memberId"
+                      required
+                    />
+                  </div>
+                  <button class="btn primary" [disabled]="mf.invalid || lender().saving > 0">
+                    Give access
+                  </button>
+                </form>
+                @if (lender().pendingWrite === 'member') {
+                  <gz-request-status [error]="lender().saveError" [showRetry]="false" />
+                }
+              }
+            </div>
+          }
+        }
+      </div>
+    }
+  }
+}

@@ -1,0 +1,146 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+.photo-gallery {
+  outline-offset: 4px;
+}
+.photo-stage {
+  height: 300px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #eaf0f1;
+}
+.main-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.photo-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.photo-placeholder > gz-icon {
+  color: #8ca2aa;
+  margin-bottom: 4px;
+}
+.photo-placeholder strong {
+  font-size: 16px;
+  color: var(--ink-2);
+}
+.photo-loading {
+  background: linear-gradient(100deg, #edf1f2, #f7f9f9, #edf1f2);
+  background-size: 200%;
+}
+.photo-count {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  background: #172735c9;
+  color: #fff;
+  border: 1px solid #ffffff40;
+  border-radius: 6px;
+  padding: 7px 11px;
+  font-size: 12px;
+  backdrop-filter: blur(8px);
+}
+.photo-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ffffff80;
+  border-radius: 50%;
+  color: var(--ink);
+  background: #fffffff0;
+  font-size: 30px;
+  line-height: 1;
+  box-shadow: 0 2px 12px #17273520;
+}
+.previous {
+  left: 14px;
+}
+.next {
+  right: 14px;
+}
+.photo-thumbnails {
+  display: flex;
+  gap: 8px;
+  padding: 12px 2px 2px;
+  overflow: auto;
+}
+.photo-thumbnail {
+  width: 76px;
+  height: 54px;
+  flex-shrink: 0;
+  padding: 0;
+  background: #eaf0f1;
+  border: 2px solid transparent;
+  border-radius: 7px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  opacity: 0.7;
+}
+.photo-thumbnail.selected {
+  border-color: #ad724c;
+  opacity: 1;
+}
+.photo-thumbnail img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+.photo-credit {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 9px 0 0;
+  overflow-wrap: anywhere;
+}
+@keyframes photo-shimmer {
+  to {
+    background-position: 200%;
+  }
+}
+@media (max-width: 650px) {
+  .photo-stage {
+    height: 220px;
+  }
+  .photo-thumbnail {
+    width: 65px;
+    height: 46px;
+  }
+}
+
+.photo-spinner {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #eaf0f1;
+  pointer-events: none;
+}
+.photo-arrow,
+.photo-count {
+  z-index: 1;
+}

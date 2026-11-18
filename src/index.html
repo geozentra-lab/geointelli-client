@@ -2,26 +2,147 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>PropertyClient</title>
+    <title>GeoZentra | Property intelligence</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f6f7" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- Fonts load in parallel with the app (an @import inside styles.css would wait for it first). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap"
       rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
     />
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap"
-      rel="stylesheet"
-    />
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <style>
+      /* Splash shown until Angular renders (including the sign-in check). Self-contained: it must
+         not depend on the app stylesheet or web fonts, which may still be downloading. */
+      html,
+      body {
+        margin: 0;
+        background: #f5f6f7;
+      }
+      .boot {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 22px;
+        padding: 24px;
+        box-sizing: border-box;
+        font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        color: #526773;
+        text-align: center;
+        /* Fast loads finish before this fades in, so there is no flash. */
+        animation: boot-in 0.3s ease-out 0.15s both;
+      }
+      .boot-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #172735;
+      }
+      .boot-logo {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        display: grid;
+        place-items: center;
+        border-radius: 13px;
+        background: #172735;
+        color: #d39a73;
+        font-size: 24px;
+        line-height: 1;
+      }
+      /* Copper ring orbiting the mark. */
+      .boot-logo::after {
+        content: '';
+        position: absolute;
+        inset: -6px;
+        border-radius: 17px;
+        border: 2px solid transparent;
+        border-top-color: #ad724c;
+        border-right-color: #ad724c33;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      .boot-bar {
+        width: 180px;
+        height: 3px;
+        border-radius: 3px;
+        background: #e4e8ea;
+        overflow: hidden;
+      }
+      .boot-bar::before {
+        content: '';
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: #ad724c;
+        animation: boot-slide 1.2s ease-in-out infinite;
+      }
+      .boot p {
+        margin: 0;
+      }
+      .boot-slow {
+        max-width: 320px;
+        font-size: 13px;
+        color: #77818b;
+        /* Appears only if start-up takes unusually long (e.g. the sign-in server is slow). */
+        animation: boot-in 0.4s ease-out 8s both;
+      }
+      .boot-slow a {
+        color: #ad724c;
+        font-weight: 600;
+      }
+      @keyframes boot-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes boot-slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-logo::after,
+        .boot-bar::before {
+          animation: none;
+        }
+        .boot-bar::before {
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+    </style>
   </head>
   <body>
-    <app-root></app-root>
+    <app-root>
+      <div class="boot" role="status" aria-live="polite">
+        <div class="boot-brand">
+          <span class="boot-logo" aria-hidden="true">⌁</span>GeoZentra
+        </div>
+        <div class="boot-bar" aria-hidden="true"></div>
+        <p>Preparing your workspace…</p>
+        <p class="boot-slow">
+          This is taking longer than usual. <a href="">Reload the page</a> if it doesn't open soon.
+        </p>
+        <noscript><p>GeoZentra needs JavaScript to run.</p></noscript>
+      </div>
+    </app-root>
   </body>
 </html>

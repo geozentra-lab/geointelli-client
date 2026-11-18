@@ -1,0 +1,148 @@
+<gz-heading
+  eyebrow="DISCOVER"
+  title="A place for your next chapter."
+  subtitle="Explore property records, parcel boundaries and comparable evidence."
+  ><a class="btn" routerLink="/explore/live">Parcel search</a></gz-heading
+>
+<div class="filters">
+  <gz-county-picker (changed)="w.search($event)" /><input
+    class="field search"
+    aria-label="Search address"
+    placeholder="Search address"
+    [ngModel]="w.catalog().query.address || ''"
+    (ngModelChange)="w.search({ address: $event || undefined })"
+  /><input
+    class="field"
+    aria-label="City"
+    placeholder="City"
+    [ngModel]="w.catalog().query.city || ''"
+    (ngModelChange)="w.search({ city: $event || undefined })"
+  /><select
+    class="field"
+    aria-label="Minimum bedrooms"
+    [ngModel]="w.catalog().query.minBedrooms ?? null"
+    (ngModelChange)="w.search({ minBedrooms: $event ?? undefined })"
+  >
+    <option [ngValue]="null">Any beds</option>
+    @for (n of [1, 2, 3, 4, 5]; track n) {
+      <option [ngValue]="n">{{ n }}+ beds</option>
+    }</select
+  ><select
+    class="field"
+    aria-label="Sort properties"
+    [ngModel]="w.catalog().query.sortBy || 'id'"
+    (ngModelChange)="w.search({ sortBy: $event })"
+  >
+    <option value="id">Record order</option>
+    <option value="livingAreaSqft">Living area</option>
+    <option value="yearBuilt">Year built</option>
+    <option value="bedrooms">Bedrooms</option></select
+  ><select
+    class="field"
+    aria-label="Sort direction"
+    [ngModel]="w.catalog().query.direction || 'asc'"
+    (ngModelChange)="w.search({ direction: $event })"
+  >
+    <option value="asc">Ascending</option>
+    <option value="desc">Descending</option>
+  </select>
+  <div class="toggle">
+    <button
+      type="button"
+      [attr.aria-pressed]="view() === 'map'"
+      [class.active]="view() === 'map'"
+      (click)="view.set('map')"
+    >
+      Map + list</button
+    ><button
+      type="button"
+      [attr.aria-pressed]="view() === 'grid'"
+      [class.active]="view() === 'grid'"
+      (click)="view.set('grid')"
+    >
+      Grid
+    </button>
+  </div>
+</div>
+<form class="row" (ngSubmit)="save()">
+  <input
+    class="field"
+    name="searchName"
+    aria-label="Saved search name"
+    placeholder="Name this search"
+    [(ngModel)]="saveName"
+    [disabled]="w.searchState().saving > 0"
+    maxlength="120"
+    required
+  /><button class="btn" [disabled]="!saveName.trim() || w.searchState().saving > 0">
+    {{ w.searchState().saving ? 'Saving…' : 'Save search' }}
+  </button>
+</form>
+
+@if (w.catalog().error && w.properties().length) {
+  <p class="sub smalltext" role="status">
+    Showing your previous results. Refresh to apply the latest filters.
+  </p>
+}
+<gz-request-status [error]="w.catalog().error" (retry)="retry()" />
+@if (w.catalog().page) {
+  <p class="sub smalltext" role="status">
+    {{
+      w.catalog().loading
+        ? 'Updating results'
+        : w.catalog().page!.totalElements + ' properties found'
+    }}
+  </p>
+}
+<gz-request-status [error]="w.favoriteState().error" (retry)="w.retryFavorite()" />
+<gz-request-status
+  [error]="w.searchState().error"
+  [retryLabel]="w.searchState().errorOperation === 'load' ? 'Refresh searches' : 'Try saving again'"
+  (retry)="retrySavedSearch()"
+/>
+<div class="section" [class.explorelayout]="view() === 'map'">
+  <div>
+    <div
+      class="propertygrid results-stage"
+      #results
+      tabindex="-1"
+      aria-label="Property results"
+      [attr.aria-busy]="w.catalog().loading"
+      [class.results-updating]="w.catalog().loading"
+    >
+      @if (w.catalog().loading) {
+        <div class="results-loader"><gz-loading-spinner label="Updating property results" /></div>
+      }
+      @if (w.properties().length || (!w.catalog().loading && !w.catalog().error)) {
+        @for (h of w.properties(); track h.id) {
+          <gz-property-card [home]="h" />
+        } @empty {
+          <div class="empty">
+            No properties match these filters.<button class="btn spacer" (click)="reset()">
+              Reset filters
+            </button>
+          </div>
+        }
+      }
+    </div>
+    @if (w.catalog().page; as p) {
+      <gz-pagination
+        [page]="p.page"
+        [pages]="p.totalPages"
+        [total]="p.totalElements"
+        [loading]="w.catalog().loading"
+        [focusTarget]="results"
+        (changed)="page($event)"
+      />
+    }
+  </div>
+  @if (view() === 'map') {
+    <div class="explore-parcel-map">
+      @defer (on immediate) {
+        <gz-parcel-explorer [embedded]="true" />
+      } @placeholder {
+        <gz-loading-spinner label="Loading parcel map" />
+      }
+    </div>
+  }
+</div>

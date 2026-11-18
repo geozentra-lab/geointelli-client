@@ -1,0 +1,267 @@
+<gz-heading
+  eyebrow="MONITOR"
+  title="Stay close to what changes."
+  subtitle="Manage your alert rules and review actual monitoring progress."
+/>
+@if (!w.auth.isLoggedIn()) {
+  <div class="panel section guest-notice">
+    <h3>Follow the changes that matter.</h3>
+    <p class="sub spacer">Sign in to create and manage alert rules.</p>
+    <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
+  </div>
+} @else {
+  <form class="panel" #form="ngForm" (ngSubmit)="form.valid && create()">
+    <fieldset class="formgrid" [disabled]="w.alertState().saving > 0">
+      <div class="formfield">
+        <label for="alertName">Rule name</label
+        ><input id="alertName" name="name" [(ngModel)]="name" maxlength="120" required />
+      </div>
+      <div class="formfield">
+        <label for="eventType">Event</label
+        ><select
+          id="eventType"
+          name="eventType"
+          [ngModel]="eventType"
+          (ngModelChange)="setEvent($event)"
+        >
+          <option value="NEW_MATCH">New matching property</option>
+          <option value="LISTING_PRICE_CHANGED">Listing price changed</option>
+          <option value="VALUATION_CHANGED">Valuation changed</option>
+        </select>
+        @if (eventType === 'LISTING_PRICE_CHANGED') {
+          <p class="sub smalltext">
+            You can save this rule. Monitoring starts once listing prices are available; assessed
+            values are not listing prices.
+          </p>
+        } @else if (eventType === 'VALUATION_CHANGED') {
+          <p class="sub smalltext">
+            Compares each newly published ZentraValue with the previous one. The first check only
+            records a starting point.
+          </p>
+        }
+      </div>
+      @if (eventType === 'VALUATION_CHANGED') {
+        <div class="formfield">
+          <label for="minimumChange">Notify for changes of at least (%)</label
+          ><input
+            id="minimumChange"
+            name="minimumChangePercent"
+            type="number"
+            min="0"
+            max="100000"
+            step="0.1"
+            required
+            [(ngModel)]="minimumChangePercent"
+          />
+          <p class="sub smalltext">0 notifies on any change.</p>
+        </div>
+        <div class="formfield">
+          <label for="changeDirection">Direction</label
+          ><select id="changeDirection" name="changeDirection" [(ngModel)]="changeDirection">
+            @for (d of directions; track d[0]) {
+              <option [value]="d[0]">{{ d[1] }}</option>
+            }
+          </select>
+        </div>
+      }
+      <div class="formfield">
+        <label for="targetType">Follow</label
+        ><select
+          id="targetType"
+          name="target"
+          [(ngModel)]="target"
+          (ngModelChange)="targetId = null"
+        >
+          <option value="search">Saved search</option>
+          <option value="property" [disabled]="eventType === 'NEW_MATCH'">Property</option>
+        </select>
+      </div>
+      @if (target === 'search') {
+        <div class="formfield">
+          <label for="targetId">Saved search</label>
+          <select
+            id="targetId"
+            name="targetId"
+            [(ngModel)]="targetId"
+            required
+            [disabled]="optionsLoading()"
+          >
+            <option [ngValue]="null">
+              {{ optionsLoading() ? 'Loading saved searches…' : 'Choose a saved search' }}
+            </option>
+            @for (s of searchOptions() ?? w.searches(); track s.id) {
+              <option [ngValue]="s.id">{{ s.name }}</option>
+            }
+          </select>
+          @if (optionsError(); as error) {
+            <p class="smalltext" role="alert">
+              {{ error }}
+              <button type="button" class="linkbtn" (click)="loadSearchOptions()">Retry</button>
+            </p>
+          } @else if (searchOptions()?.length === 0) {
+            <p class="smalltext muted">
+              You have no saved searches yet. Save one from Explore to watch it here.
+            </p>
+          } @else if ((searchOptions()?.length ?? 0) >= optionsLimit) {
+            <p class="smalltext muted">Showing your first {{ optionsLimit }} saved searches.</p>
+          }
+        </div>
+      } @else {
+        <gz-property-picker
+          class="full"
+          label="Property"
+          [propertyId]="targetId"
+          (selected)="targetId = $event"
+        />
+      }
+      <div class="formfield">
+        <label for="cadence">Cadence</label
+        ><select id="cadence" name="cadence" [(ngModel)]="cadence">
+          <option value="DAILY">Daily</option>
+          <option value="WEEKLY">Weekly</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button
+          class="btn primary"
+          [disabled]="
+            form.invalid ||
+            w.alertState().saving > 0 ||
+            (eventType === 'NEW_MATCH' && target !== 'search') ||
+            (eventType === 'VALUATION_CHANGED' && thresholdInvalid(minimumChangePercent))
+          "
+        >
+          {{ w.alertState().saving ? 'Saving…' : 'Create rule' }}
+        </button>
+      </div>
+    </fieldset>
+  </form>
+  <gz-request-status
+    [loading]="w.alertState().loading"
+    [error]="w.alertState().error"
+    [showRetry]="w.alertState().errorOperation !== 'save'"
+    (retry)="page(w.alertState().page)"
+  />
+  <div class="panel section" #rules tabindex="-1" aria-label="Alert rules">
+    @for (a of w.alerts(); track a.id) {
+      <section class="alertrow">
+        <div class="alertcontent">
+          <strong>{{ a.name }}</strong>
+          <p>
+            {{ eventLabel(a.eventType) }} · {{ a.cadence === 'DAILY' ? 'Daily' : 'Weekly' }} ·
+            {{ a.effectivePaused ? 'Paused' : 'Active rule' }}
+          </p>
+          @if (a.eventType === 'VALUATION_CHANGED') {
+            @if (editing() === a.id) {
+              <form class="filterbar spacer" #cf="ngForm" (ngSubmit)="cf.valid && saveCriteria(a)">
+                <div class="formfield">
+                  <label [for]="'min-' + a.id">At least (%)</label
+                  ><input
+                    [id]="'min-' + a.id"
+                    name="editMinimum"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    step="0.1"
+                    required
+                    [(ngModel)]="editMinimum"
+                  />
+                </div>
+                <div class="formfield">
+                  <label [for]="'dir-' + a.id">Direction</label
+                  ><select [id]="'dir-' + a.id" name="editDirection" [(ngModel)]="editDirection">
+                    @for (d of directions; track d[0]) {
+                      <option [value]="d[0]">{{ d[1] }}</option>
+                    }
+                  </select>
+                </div>
+                <button
+                  class="btn small primary"
+                  [disabled]="cf.invalid || w.alertState().saving > 0"
+                >
+                  Save
+                </button>
+                <button type="button" class="linkbtn" (click)="editing.set(null)">Cancel</button>
+              </form>
+              <p class="smalltext muted">Changing the criteria starts a new silent baseline.</p>
+            } @else {
+              <p>
+                {{ criteria(a) }} ·
+                <button type="button" class="linkbtn" (click)="editCriteria(a)">Change</button>
+              </p>
+            }
+          }
+          <p>
+            @if (a.savedSearchId) {
+              Saved search: {{ searchName(a.savedSearchId) }}
+            } @else if (a.propertyId) {
+              Property: <gz-property-ref [propertyId]="a.propertyId" />
+            }
+          </p>
+          @if (w.alertState().monitoring[a.id]; as m) {
+            <div class="actions">
+              <span class="tag">{{ m.status | label }}</span
+              ><span class="smalltext"
+                >{{ m.baselineEstablished ? 'Baseline established' : 'Waiting for baseline' }} ·
+                {{ m.scannedMatches }} scanned</span
+              >
+            </div>
+            <p>
+              Last evaluated:
+              {{ m.lastEvaluatedAt ? (m.lastEvaluatedAt | date: 'medium') : 'Not yet' }} · Next:
+              {{ m.nextEvaluationAt ? (m.nextEvaluationAt | date: 'medium') : 'Not scheduled' }}
+            </p>
+            <p>
+              {{ m.pendingEvents }} pending · {{ m.sentEvents }} published ·
+              {{ m.failedEvents }} failed
+            </p>
+            @if (!m.monitoringEnabled) {
+              <p>Background monitoring is not enabled.</p>
+            }
+            @if (m.lastErrorCode) {
+              <p role="alert">The last check failed (code {{ m.lastErrorCode }}).</p>
+            }
+          }
+          @if (w.alertState().monitoringErrors[a.id]; as error) {
+            <p role="alert">{{ error }}</p>
+          }
+        </div>
+        <div class="actions">
+          <button
+            class="btn small"
+            [disabled]="w.alertState().saving > 0"
+            (click)="update(a, { paused: !a.paused })"
+          >
+            {{ a.paused ? 'Resume' : 'Pause' }}</button
+          ><button class="btn small" (click)="status(a.id)">Refresh status</button
+          ><button
+            class="btn small"
+            (click)="evaluate(a.id)"
+            [disabled]="
+              w.alertState().evaluationPending[a.id] ||
+              a.effectivePaused ||
+              a.eventType === 'LISTING_PRICE_CHANGED' ||
+              !w.alertState().monitoring[a.id]?.monitoringEnabled
+            "
+          >
+            {{ w.alertState().evaluationPending[a.id] ? 'Scheduling…' : 'Evaluate now' }}</button
+          ><button class="btn small" [disabled]="w.alertState().saving > 0" (click)="remove(a.id)">
+            Delete
+          </button>
+        </div>
+      </section>
+    } @empty {
+      @if (!w.alertState().loading && !w.alertState().error) {
+        <p class="sub">No alert rules configured.</p>
+      }
+    }
+    <gz-pagination
+      [page]="w.alertState().page"
+      [pages]="w.alertState().totalPages"
+      [total]="w.alertState().totalElements"
+      [loading]="w.alertState().loading"
+      [focusTarget]="rules"
+      (changed)="page($event)"
+    />
+  </div>
+}

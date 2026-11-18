@@ -1,0 +1,201 @@
+<gz-heading
+  eyebrow="PROFILE & PREFERENCES"
+  title="Your goals shape the experience."
+  subtitle="Manage your profile and saved property preferences."
+/>
+<gz-request-status
+  [loading]="w.account().loading"
+  [error]="w.account().error"
+  (retry)="w.reloadUser()"
+/>
+@if (!w.auth.isLoggedIn()) {
+  <div class="panel section guest-notice">
+    <h3>Tailor GeoZentra to your goals.</h3>
+    <p class="sub spacer">
+      Sign in to manage your profile, persona and property preferences across visits.
+    </p>
+    <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
+  </div>
+} @else if (w.account().profile) {
+  <form class="panel" #profile="ngForm" (ngSubmit)="profile.valid && saveProfile()">
+    <fieldset [disabled]="w.account().savingProfile">
+      <div class="panelhead">
+        <h3>Your profile</h3>
+        <span class="tag">{{ w.account().profile?.email }}</span>
+      </div>
+      <div class="formgrid">
+        <div class="formfield">
+          <label for="firstName">First name</label
+          ><input id="firstName" name="firstName" [(ngModel)]="firstName" maxlength="100" />
+        </div>
+        <div class="formfield">
+          <label for="lastName">Last name</label
+          ><input id="lastName" name="lastName" [(ngModel)]="lastName" maxlength="100" />
+        </div>
+        <div class="formfield">
+          <label for="persona">Primary experience</label
+          ><select id="persona" name="persona" [(ngModel)]="persona">
+            <option value="USER">Buyer</option>
+            <option value="RESIDENTIAL_INVESTOR">Investor</option>
+            <option value="REALTOR">Realtor</option>
+            <option value="BANK_LENDER">Lender</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn primary spacer" [disabled]="w.account().savingProfile">
+        {{ w.account().savingProfile ? 'Saving…' : 'Save profile' }}
+      </button>
+    </fieldset>
+  </form>
+  <gz-request-status
+    [error]="w.account().profileError"
+    (retry)="saveProfile()"
+    retryLabel="Try saving again"
+  />
+  <gz-request-status [error]="w.account().preferencesLoadError" (retry)="loadPreferences()" />
+  @if (w.account().preferences) {
+    <gz-request-status
+      [error]="w.account().preferencesError"
+      (retry)="savePreferences()"
+      retryLabel="Try saving again"
+    />
+  }
+  @if (w.account().preferences) {
+    <form class="panel section" #prefs="ngForm" (ngSubmit)="prefs.valid && savePreferences()">
+      <fieldset [disabled]="w.account().savingPreferences">
+        <h3>Property preferences</h3>
+        <div class="formgrid section">
+          <div class="formfield">
+            <label for="minBudget">Minimum budget ($)</label
+            ><input
+              id="minBudget"
+              name="minBudget"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="preferences.minBudget"
+            />
+          </div>
+          <div class="formfield">
+            <label for="maxBudget">Maximum budget ($)</label
+            ><input
+              id="maxBudget"
+              name="maxBudget"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="preferences.maxBudget"
+            />
+          </div>
+        </div>
+        <h3 class="spacer">Target counties</h3>
+        <div class="row spacer">
+          <gz-county-picker />
+          <button
+            class="btn"
+            type="button"
+            (click)="addCounty()"
+            [disabled]="!locations().countyId || preferences.targetLocations.length >= 20"
+          >
+            Add county
+          </button>
+        </div>
+        <div class="actions spacer">
+          @for (c of preferences.targetLocations; track c.countyId) {
+            <button
+              type="button"
+              class="tag"
+              (click)="removeCounty(c.countyId)"
+              [attr.aria-label]="'Remove ' + (c.countyName || 'county ' + c.countyId)"
+            >
+              {{ c.countyName || 'County ' + c.countyId }} ×
+            </button>
+          }
+        </div>
+        <div class="formfield section">
+          <label for="goals">Investment goals (one per line, up to 20)</label
+          ><textarea
+            class="field fullwidth"
+            id="goals"
+            name="goals"
+            [(ngModel)]="goals"
+            rows="4"
+          ></textarea>
+        </div>
+        <button
+          class="btn primary spacer"
+          [disabled]="prefs.invalid || w.account().savingPreferences"
+        >
+          {{ w.account().savingPreferences ? 'Saving…' : 'Save preferences' }}
+        </button>
+      </fieldset>
+    </form>
+  }
+  <gz-request-status
+    [loading]="notify().loading"
+    [error]="notify().error"
+    (retry)="notify().errorOperation === 'save' ? saveDelivery() : loadDelivery()"
+    [retryLabel]="notify().errorOperation === 'save' ? 'Try saving again' : 'Retry'"
+  />
+  @if (notify().preferences; as n) {
+    <form class="panel section" (ngSubmit)="saveDelivery()">
+      <fieldset [disabled]="notify().saving">
+        <legend class="sr-only">Notification delivery</legend>
+        <div class="panelhead">
+          <h3>Notifications</h3>
+          @if (n.updatedAt) {
+            <span class="smalltext muted">Updated {{ n.updatedAt | date: 'medium' }}</span>
+          }
+        </div>
+        <p class="sub">Choose what you hear about and where.</p>
+        <label class="checkbox spacer"
+          ><input type="checkbox" name="newMatch" [(ngModel)]="delivery.newMatch" /> New properties
+          matching your alert rules</label
+        >
+        <label class="checkbox spacer"
+          ><input type="checkbox" name="contactRequest" [(ngModel)]="delivery.contactRequest" />
+          Contact requests from people asking you about a property</label
+        >
+        <label class="checkbox spacer"
+          ><input type="checkbox" name="valuationChanged" [(ngModel)]="delivery.valuationChanged" />
+          ZentraValue changes on the properties and searches your alert rules follow</label
+        >
+        <label class="checkbox spacer"
+          ><input type="checkbox" name="inApp" [(ngModel)]="delivery.inAppEnabled" /> Show in the
+          notification bell</label
+        >
+        <label class="checkbox spacer"
+          ><input type="checkbox" name="email" [(ngModel)]="delivery.emailEnabled" /> Email me
+          @if (n.emailAddress) {
+            at <strong>{{ n.emailAddress }}</strong>
+          }
+        </label>
+        @if (delivery.emailEnabled) {
+          <div class="formfield spacer">
+            <label for="emailCadence">Email frequency</label
+            ><select id="emailCadence" name="emailCadence" [(ngModel)]="delivery.emailCadence">
+              <option value="IMMEDIATE">As it happens</option>
+              <option value="DAILY">Daily digest</option>
+              <option value="WEEKLY">Weekly digest</option>
+            </select>
+          </div>
+          @if (!n.emailDeliveryEnabled) {
+            <p class="insight section">
+              Email delivery is not switched on for this environment yet. Your choice is saved and
+              takes effect when it is.
+            </p>
+          } @else if (n.nextEmailAt) {
+            <p class="sourcedata">Next email: {{ n.nextEmailAt | date: 'medium' }}</p>
+          }
+        }
+        <button class="btn primary spacer" [disabled]="notify().saving">
+          {{ notify().saving ? 'Saving…' : 'Save notification settings' }}
+        </button>
+      </fieldset>
+    </form>
+  }
+  @if (persona === 'REALTOR' || w.account().profile?.realtorLicenseStatus) {
+    <gz-realtor-license />
+  }
+  <button class="btn spacer" (click)="w.signOut()">Sign out</button>
+}

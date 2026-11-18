@@ -1,0 +1,96 @@
+<section
+  class="photo-gallery"
+  aria-label="Property photos"
+  tabindex="0"
+  (keydown)="keyboard($event)"
+>
+  <div class="photo-stage" [class.photo-loading]="loading()">
+    @if (loading()) {
+      <gz-loading-spinner class="photo-spinner" label="Loading property photos" />
+    } @else if (error()) {
+      <div class="photo-placeholder" role="alert">
+        <gz-icon name="home" /><strong>Photos are unavailable</strong><span>{{ error() }}</span
+        ><button class="btn small" (click)="retry.emit()">Retry photos</button>
+      </div>
+    } @else if (active(); as photo) {
+      @if (photo.storagePath && !failed().has(photo.id)) {
+        <img
+          class="main-photo"
+          [src]="photo.storagePath"
+          [alt]="address() + ' · photo ' + (selected() + 1)"
+          (load)="markLoaded(photo.storagePath)"
+          decoding="async"
+          (error)="markFailed(photo.id)"
+          referrerpolicy="no-referrer"
+        />
+        @if (!loaded().has(photo.storagePath)) {
+          <div class="image-loading-overlay">
+            <gz-loading-spinner label="Loading property photo" />
+          </div>
+        }
+      } @else {
+        <div class="photo-placeholder">
+          <gz-icon name="home" /><strong>This photo is unavailable</strong
+          ><button class="btn small" (click)="retry.emit()">Reload photos</button>
+        </div>
+      }
+      <span class="photo-count" aria-live="polite"
+        >{{ selected() + 1 }} / {{ ordered().length }}</span
+      >
+      @if (ordered().length > 1) {
+        <button
+          class="photo-arrow previous"
+          aria-label="Previous property photo"
+          (click)="move(-1)"
+        >
+          ‹</button
+        ><button class="photo-arrow next" aria-label="Next property photo" (click)="move(1)">
+          ›
+        </button>
+      }
+    } @else {
+      <div class="photo-placeholder">
+        <gz-icon name="home" /><strong>No property photos available</strong
+        ><span>Property information is shown below.</span>
+      </div>
+    }
+  </div>
+  @if (!loading() && !error() && ordered().length > 1) {
+    <div class="photo-thumbnails" aria-label="Choose a property photo">
+      @for (photo of ordered(); track photo.id) {
+        <button
+          class="photo-thumbnail"
+          [class.selected]="selected() === $index"
+          [attr.aria-label]="'Show property photo ' + ($index + 1)"
+          [attr.aria-pressed]="selected() === $index"
+          (click)="selected.set($index)"
+        >
+          @if (photo.storagePath && !failed().has(photo.id)) {
+            <img
+              [src]="photo.storagePath"
+              alt=""
+              loading="lazy"
+              (error)="markFailed(photo.id)"
+              referrerpolicy="no-referrer"
+            />
+          } @else {
+            <gz-icon name="home" />
+          }
+        </button>
+      }
+    </div>
+  }
+  @if (!loading() && !error() && active(); as photo) {
+    @if (photo.contributor || photo.license || photo.source || photo.capturedAt) {
+      <p class="photo-credit">
+        {{ photo.contributor || photo.source }}
+        @if (photo.license) {
+          · {{ photo.license }}
+        }
+        @if (photo.capturedAt) {
+          · {{ photo.capturedAt | date: 'MMM yyyy' }}
+        }
+      </p>
+    }
+  }
+</section>

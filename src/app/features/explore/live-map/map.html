@@ -1,0 +1,250 @@
+@if (!embedded()) {
+  <gz-heading
+    eyebrow="PROPERTY EXPLORER"
+    title="Every parcel. A clearer perspective."
+    subtitle="Find a property by folio or address, or zoom in to explore parcel boundaries."
+    ><a class="btn" routerLink="/explore">Back to properties</a></gz-heading
+  >
+}
+<div class="panel live-search">
+  <app-search-bar (search)="search($event)" (pick)="showProperty($event)" />
+  <div class="actions">
+    <select
+      class="field"
+      aria-label="Base map layer"
+      [(ngModel)]="base"
+      (ngModelChange)="setLayer()"
+    >
+      <option value="satellite">Satellite</option>
+      <option value="street">Street</option>
+      <option value="terrain">Terrain</option></select
+    ><button
+      class="btn"
+      [class.primary]="heatmapActive"
+      [disabled]="valuation().bulkLoading || !properties().parcels.length"
+      (click)="toggleHeatmap()"
+    >
+      @if (valuation().bulkLoading) {
+        <gz-loading-spinner [compact]="true" label="Loading growth heatmap" />
+      } @else {
+        {{ heatmapActive ? 'Hide growth heatmap' : 'Growth heatmap' }}
+      }
+    </button>
+  </div>
+</div>
+@if (properties().error) {
+  <div class="insight danger section" role="alert">
+    {{ properties().error }}<button class="btn small" (click)="retry()">Retry</button>
+  </div>
+}
+@if (properties().searchNotice) {
+  <p class="insight section" role="status">{{ properties().searchNotice }}</p>
+}
+@if (properties().addressMatches.length > 1) {
+  <div class="panel section">
+    <div class="panelhead">
+      <h3>
+        @if (matchesCapped()) {
+          First {{ properties().addressMatches.length }} properties matching this address
+        } @else {
+          {{ properties().addressMatches.length }} properties match this address
+        }
+      </h3>
+      <span class="smalltext muted">
+        @if (matchesCapped()) {
+          Add a street number, unit or city to narrow it down
+        } @else {
+          Choose one to show it on the map
+        }
+      </span>
+    </div>
+    <div class="match-list spacer" role="group" aria-label="Address matches">
+      @for (m of properties().addressMatches; track m.id) {
+        <div class="matchrow">
+          <button
+            type="button"
+            class="match"
+            [class.chosen]="isChosen(m, $index)"
+            [attr.aria-pressed]="isChosen(m, $index)"
+            (click)="chooseMatch(m)"
+          >
+            @if (photo(m.id); as url) {
+              <img [src]="url" alt="" loading="lazy" (error)="failedImage(m.id)" />
+            } @else {
+              <span class="thumbnail"><gz-icon name="home" /></span>
+            }
+            <span class="text">
+              <span class="title">{{ m.address || 'Folio ' + m.folio }}</span>
+              <span class="smalltext muted">{{ matchPlace(m) || 'Folio ' + m.folio }}</span>
+            </span>
+          </button>
+          <a
+            class="smalltext matchlink"
+            [routerLink]="['/property', m.id]"
+            [attr.aria-label]="'Open full record for ' + (m.address || 'folio ' + m.folio)"
+            >Full record</a
+          >
+        </div>
+      }
+    </div>
+  </div>
+}
+@if (heatmapActive) {
+  <gz-request-status
+    [error]="valuation().bulkError"
+    retryLabel="Retry heatmap"
+    (retry)="loadHeatmap()"
+  />
+}
+<div class="mapcontainer live-map section">
+  <div id="map" class="map"></div>
+  @if (properties().loading) {
+    <div class="map-loading"><gz-loading-spinner label="Loading parcels" /></div>
+  }
+  <div class="maplabel">
+    {{ properties().parcels.length }} parcel boundaries · Boundaries appear from zoom 14
+  </div>
+  @if (heatmapActive && growth(); as g) {
+    <div class="growth-key" aria-hidden="true">
+      <b>{{ g.metric.name }}</b>
+      <div class="growth-key-scale">
+        @for (c of g.metric.classes; track c.color) {
+          <span [style.background]="c.color" [title]="c.label"></span>
+        }
+      </div>
+      <div class="growth-key-ticks"><span>Slower</span><span>Typical</span><span>Faster</span></div>
+    </div>
+  }
+</div>
+@if (parcelLayer(); as l) {
+  <p class="sourcedata layer-source">
+    {{ l.name }}: {{ l.source }}
+    @if (l.coverage.length) {
+      · covers {{ l.coverage.join(', ') }}
+    }
+    · {{ l.featureCount | number }} boundaries
+    @if (l.lastUpdated) {
+      · updated {{ l.lastUpdated | date: 'mediumDate' }}
+    }
+  </p>
+}
+@if (heatmapActive && !valuation().bulkError && growth(); as g) {
+  <section class="panel section growth-panel" aria-labelledby="growth-title">
+    <div class="panelhead">
+      <div>
+        <h3 id="growth-title">Growth heatmap</h3>
+        <p class="sub">
+          Each square is the median of the homes inside it, about {{ cellMeters }} m across.
+        </p>
+      </div>
+      <div class="growth-metrics" role="group" aria-label="Growth measure">
+        @for (m of metrics; track m.id) {
+          <button
+            type="button"
+            class="btn small"
+            [class.primary]="metric() === m.id"
+            [attr.aria-pressed]="metric() === m.id"
+            [disabled]="m.id === 'forecast' && !forecastHomes()"
+            [title]="
+              m.id === 'forecast' && !forecastHomes()
+                ? 'No forecasts for the homes in view'
+                : m.help
+            "
+            (click)="setMetric(m.id)"
+          >
+            {{ m.name }}
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (!g.homes) {
+      <p class="sub">
+        None of the {{ excludedCount(g) }} homes in view can be measured this way:
+        {{ excludedText(g) }}.
+      </p>
+    } @else {
+      <div class="growth-stats">
+        <div>
+          <span>Median in view</span><strong>{{ fmt(g.median) }}</strong>
+        </div>
+        <div>
+          <span>Middle half of homes</span><strong>{{ fmt(g.p25) }} to {{ fmt(g.p75) }}</strong>
+        </div>
+        <div>
+          <span>Homes mapped</span><strong>{{ g.homes }}</strong>
+          <small>in {{ g.cells.length }} squares</small>
+        </div>
+        <div>
+          <span>Left out</span><strong>{{ excludedCount(g) }}</strong>
+          @if (excludedCount(g)) {
+            <small>{{ excludedText(g) }}</small>
+          }
+        </div>
+      </div>
+
+      <div class="growth-scale" role="list" aria-label="Colour scale and homes per class">
+        @for (c of g.metric.classes; track c.color; let i = $index) {
+          <div class="growth-class" role="listitem">
+            <span class="swatch" [style.background]="c.color"></span>
+            <span class="label">{{ c.label }}</span>
+            <span class="bar"
+              ><span
+                [style.width.%]="(g.histogram[i] / histogramMax()) * 100"
+                [style.background]="c.color"
+              ></span
+            ></span>
+            <span class="count">{{ g.histogram[i] }}</span>
+          </div>
+        }
+      </div>
+
+      @if (g.fastest.length) {
+        <div class="growth-spots">
+          <div>
+            <h4>Fastest areas in view</h4>
+            @for (c of g.fastest; track c.key) {
+              <button type="button" class="spot" (click)="focusCell(c)">
+                <span
+                  class="swatch"
+                  [style.background]="g.metric.classes[c.classIndex].color"
+                ></span>
+                <b>{{ fmt(c.median) }}</b
+                ><span class="muted">{{ c.count }} homes</span>
+              </button>
+            }
+          </div>
+          @if (g.slowest.length) {
+            <div>
+              <h4>Slowest areas in view</h4>
+              @for (c of g.slowest; track c.key) {
+                <button type="button" class="spot" (click)="focusCell(c)">
+                  <span
+                    class="swatch"
+                    [style.background]="g.metric.classes[c.classIndex].color"
+                  ></span>
+                  <b>{{ fmt(c.median) }}</b
+                  ><span class="muted">{{ c.count }} homes</span>
+                </button>
+              }
+            </div>
+          }
+        </div>
+      }
+    }
+
+    <p class="sourcedata">
+      {{ g.metric.help }} Faded squares hold fewer than {{ minReliable }} homes. Colours use fixed
+      steps, so they mean the same thing anywhere on the map.
+      @for (s of g.sources; track s.modelVersion + s.predictionDate) {
+        <br />Estimates: model
+        {{
+          s.predictionDate
+            ? s.modelVersion + ', ' + (s.predictionDate | date: 'mediumDate')
+            : s.modelVersion
+        }}
+        ({{ s.count }} homes)
+      }
+    </p>
+  </section>
+}

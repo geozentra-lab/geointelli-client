@@ -1,0 +1,580 @@
+<gz-heading
+  eyebrow="PORTFOLIO"
+  title="The bigger picture, property by property."
+  subtitle="Manage holdings and actual financial records, with explicit data coverage."
+/>
+@if (!w.auth.isLoggedIn()) {
+  <div class="panel section guest-notice">
+    <h3>Your property portfolio.</h3>
+    <p class="sub spacer">Sign in to track holdings and financial records.</p>
+    <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
+  </div>
+} @else {
+  <gz-request-status
+    [loading]="w.portfolio().loading"
+    [error]="w.portfolio().errors.list"
+    (retry)="page(w.portfolio().page?.page ?? 0)"
+  />
+  <form class="panel" #portfolioForm="ngForm" (ngSubmit)="portfolioForm.valid && savePortfolio()">
+    <fieldset [disabled]="w.portfolio().saving > 0">
+      <h3>{{ editingPortfolio === null ? 'Create a portfolio' : 'Edit portfolio' }}</h3>
+      <div class="formgrid section">
+        <div class="formfield">
+          <label for="portfolioName">Name</label
+          ><input id="portfolioName" name="name" [(ngModel)]="name" maxlength="120" required />
+        </div>
+        <div class="formfield">
+          <label for="portfolioDescription">Description</label
+          ><input
+            id="portfolioDescription"
+            name="description"
+            [(ngModel)]="description"
+            maxlength="2000"
+          />
+        </div>
+      </div>
+      <div class="actions spacer">
+        <button class="btn primary" [disabled]="portfolioForm.invalid || w.portfolio().saving > 0">
+          {{ editingPortfolio === null ? 'Create portfolio' : 'Save portfolio' }}
+        </button>
+        @if (editingPortfolio !== null) {
+          <button class="btn" type="button" (click)="newPortfolio()">Cancel edit</button>
+        }
+      </div>
+    </fieldset>
+  </form>
+  <gz-request-status [error]="w.portfolio().errors.save" [showRetry]="false" />
+  <div class="actions section">
+    <select
+      class="field"
+      aria-label="Select portfolio"
+      [disabled]="w.portfolio().saving > 0"
+      [ngModel]="w.portfolio().selectedId"
+      (ngModelChange)="select($event)"
+    >
+      <option [ngValue]="null">Select a portfolio</option>
+      @for (p of w.portfolios(); track p.id) {
+        <option [ngValue]="p.id">{{ p.name }} · {{ p.holdingCount }} holdings</option>
+      }
+    </select>
+    @if (w.portfolio().selectedId !== null) {
+      <button class="btn small" (click)="editPortfolio()">Edit portfolio</button
+      ><button class="btn small" (click)="removePortfolio()" [disabled]="w.portfolio().saving > 0">
+        Delete portfolio
+      </button>
+    }
+  </div>
+  @if (w.portfolio().page; as pageInfo) {
+    <gz-pagination
+      [page]="pageInfo.page"
+      [pages]="pageInfo.totalPages"
+      [total]="pageInfo.totalElements"
+      [loading]="w.portfolio().loading"
+      (changed)="page($event)"
+    />
+  }
+  @if (w.portfolio().selectedId; as portfolioId) {
+    <form class="section" (ngSubmit)="summary()">
+      <fieldset class="filterbar" [disabled]="w.portfolio().saving > 0">
+        <div class="formfield">
+          <label for="summaryFrom">Cash period from</label
+          ><input id="summaryFrom" name="fromDate" type="date" [(ngModel)]="fromDate" />
+        </div>
+        <div class="formfield">
+          <label for="summaryTo">Through</label
+          ><input id="summaryTo" name="toDate" type="date" [(ngModel)]="toDate" />
+        </div>
+        <button
+          class="btn"
+          [disabled]="w.portfolio().summaryLoading || (!!fromDate && !!toDate && fromDate > toDate)"
+        >
+          Update summary
+        </button>
+      </fieldset>
+      @if (!!fromDate && !!toDate && fromDate > toDate) {
+        <p class="field-error" role="alert">The start date must be on or before the end date.</p>
+      }
+    </form>
+    <gz-request-status
+      [loading]="w.portfolio().summaryLoading"
+      [error]="w.portfolio().errors.summary"
+      (retry)="summary()"
+    />
+    @if (w.portfolio().summary; as s) {
+      <div class="panel section">
+        <div class="panelhead">
+          <h3>{{ s.portfolioName }} · performance</h3>
+          <span class="tag">{{ s.status | label }}</span>
+        </div>
+        <p class="sub">
+          Cash records: {{ s.fromDate | date }} – {{ s.toDate | date }}. Financing and exposure
+          describe current holdings.
+        </p>
+        @for (error of s.errors; track error.section) {
+          <p class="insight section">
+            The {{ humanize(error.section) }} figures could not be calculated
+            <span class="smalltext muted">({{ error.code }})</span>. The other sections are still
+            accurate.
+          </p>
+        }
+        <div class="grid cols3 section">
+          @for (
+            row of [
+              { label: 'Market value', metric: s.valuationAndDebt?.value },
+              { label: 'Reported debt', metric: s.valuationAndDebt?.debt },
+              { label: 'Equity', metric: s.valuationAndDebt?.equity },
+            ];
+            track row.label
+          ) {
+            <div class="metric">
+              <div class="label">{{ row.label }}</div>
+              <div class="number">{{ metric(row.metric) }}</div>
+              @if (row.metric; as m) {
+                <p class="detail">
+                  {{ m.coveredHoldings }} / {{ m.totalHoldings }} holdings covered
+                </p>
+                @if (m.total === null) {
+                  <p class="sourcedata">
+                    Known portion: {{ money(m.knownTotal) }} · {{ m.status | label }}
+                  </p>
+                }
+              }
+            </div>
+          }
+        </div>
+        @if (s.valuationAndDebt?.note) {
+          <p class="sourcedata">{{ s.valuationAndDebt?.note }}</p>
+        }
+        @if (s.financials; as f) {
+          <div class="grid cols3 section">
+            <div class="metric">
+              <span class="label">Recorded income</span>
+              <div class="number">{{ money(f.income) }}</div>
+            </div>
+            <div class="metric">
+              <span class="label">Recorded expenses</span>
+              <div class="number">{{ money(f.expenses) }}</div>
+            </div>
+            <div class="metric">
+              <span class="label">Recorded cash flow</span>
+              <div class="number">{{ money(f.cashFlow) }}</div>
+            </div>
+          </div>
+          <p class="sourcedata">
+            {{ f.recordCount }} records · {{ f.holdingsWithRecords }} /
+            {{ f.totalHoldings }} holdings with records. {{ f.note }}
+          </p>
+        }
+        @if (s.occupancyAndExposure; as e) {
+          <div class="lineitem">
+            <span>Rental occupancy</span
+            ><strong>{{
+              e.rentalOccupancyPercent === null
+                ? 'Unavailable'
+                : (e.rentalOccupancyPercent | number: '1.0-1') + '%'
+            }}</strong>
+          </div>
+          <h3 class="spacer">Exposure by holding count</h3>
+          @for (g of e.counties; track $index) {
+            <div class="lineitem">
+              <span>{{ g.unknown ? 'Unknown county' : g.countyName }}</span
+              ><span
+                >{{ g.holdingCount }} holdings · {{ g.holdingPercent | number: '1.0-1' }}%</span
+              >
+            </div>
+          }
+          <p class="sourcedata">{{ e.note }}</p>
+        }
+      </div>
+    }
+    <div class="panel section">
+      <div class="panelhead">
+        <h3>Holdings</h3>
+        <button class="btn small" (click)="newHolding()">New holding</button>
+      </div>
+      <gz-request-status
+        [loading]="w.portfolio().holdingsLoading"
+        [error]="w.portfolio().errors.holdings"
+        (retry)="holdingsPage(w.portfolio().holdingsPage?.page ?? 0)"
+      />
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Ownership</th>
+              <th>Purchase price</th>
+              <th>Occupancy</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (h of w.portfolio().holdingsPage?.content; track h.id) {
+              <tr>
+                <td>
+                  <gz-property-ref [propertyId]="h.propertyId" /><small class="muted smalltext">
+                    · Folio {{ h.folio }}</small
+                  >
+                </td>
+                <td>
+                  {{
+                    h.ownershipSharePercent == null
+                      ? '—'
+                      : (h.ownershipSharePercent | number: '1.0-2') + '%'
+                  }}
+                </td>
+                <td>{{ money(h.purchasePrice) }}</td>
+                <td>{{ h.occupancy?.status || 'UNKNOWN' | label }}</td>
+                <td>
+                  <div class="actions">
+                    <button class="btn small" (click)="editHolding(h)">Edit</button
+                    ><button class="btn small" (click)="selectHolding(h.id)">
+                      Financial records</button
+                    ><button
+                      class="btn small"
+                      [disabled]="w.portfolio().saving > 0"
+                      (click)="removeHolding(h)"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              @if (!w.portfolio().holdingsLoading) {
+                <tr>
+                  <td colspan="5">No holdings in this portfolio.</td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (w.portfolio().holdingsPage; as hp) {
+        <gz-pagination
+          [page]="hp.page"
+          [pages]="hp.totalPages"
+          [total]="hp.totalElements"
+          [loading]="w.portfolio().holdingsLoading"
+          (changed)="holdingsPage($event)"
+        />
+      }
+    </div>
+    <form
+      class="panel section"
+      #holdingForm="ngForm"
+      (ngSubmit)="holdingForm.valid && saveHolding()"
+    >
+      <fieldset [disabled]="w.portfolio().saving > 0">
+        <h3>{{ editingHolding === null ? 'Add a holding' : 'Edit holding' }}</h3>
+        <div class="formgrid section">
+          <gz-property-picker
+            class="full"
+            label="Property address"
+            [propertyId]="holding.propertyId"
+            [locked]="editingHolding !== null"
+            (selected)="holding.propertyId = $event"
+          />
+
+          <div class="formfield">
+            <label for="ownership">Ownership share (%)</label
+            ><input
+              id="ownership"
+              name="ownership"
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.01"
+              [(ngModel)]="holding.ownershipSharePercent"
+              required
+            />
+          </div>
+          <div class="formfield">
+            <label for="acquired">Acquisition date</label
+            ><input
+              id="acquired"
+              name="acquired"
+              type="date"
+              [(ngModel)]="holding.acquisitionDate"
+            />
+          </div>
+          <div class="formfield">
+            <label for="purchase">Purchase price ($)</label
+            ><input
+              id="purchase"
+              name="purchase"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="holding.purchasePrice"
+            />
+          </div>
+          <div class="formfield">
+            <label for="acquisitionCosts">Acquisition costs ($)</label
+            ><input
+              id="acquisitionCosts"
+              name="acquisitionCosts"
+              type="number"
+              min="0"
+              step="0.01"
+              [(ngModel)]="holding.acquisitionCosts"
+            />
+          </div>
+          <div class="formfield">
+            <label for="financing">Financing</label
+            ><select id="financing" name="financing" [(ngModel)]="holding.financingType">
+              <option value="UNKNOWN">Unknown</option>
+              <option value="CASH">Cash</option>
+              <option value="FINANCED">Financed</option>
+            </select>
+          </div>
+          @if (holding.financingType === 'FINANCED') {
+            <div class="formfield">
+              <label for="loan">Original loan ($)</label
+              ><input
+                id="loan"
+                name="loan"
+                type="number"
+                min="0"
+                [(ngModel)]="holding.loanAmount"
+              />
+            </div>
+            <div class="formfield">
+              <label for="balance">Outstanding balance ($)</label
+              ><input
+                id="balance"
+                name="balance"
+                type="number"
+                min="0"
+                [(ngModel)]="holding.outstandingBalance"
+              />
+            </div>
+            <div class="formfield">
+              <label for="balanceDate">Balance as of</label
+              ><input
+                id="balanceDate"
+                name="balanceDate"
+                type="date"
+                [(ngModel)]="holding.balanceAsOfDate"
+              />
+            </div>
+            <div class="formfield">
+              <label for="holdingRate">Annual interest rate (%)</label
+              ><input
+                id="holdingRate"
+                name="holdingRate"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                [(ngModel)]="holding.interestRatePercent"
+              />
+            </div>
+            <div class="formfield">
+              <label for="holdingTerm">Loan term (months)</label
+              ><input
+                id="holdingTerm"
+                name="holdingTerm"
+                type="number"
+                min="1"
+                [(ngModel)]="holding.loanTermMonths"
+              />
+            </div>
+            <div class="formfield">
+              <label for="holdingPayment">Monthly payment ($)</label
+              ><input
+                id="holdingPayment"
+                name="holdingPayment"
+                type="number"
+                min="0"
+                [(ngModel)]="holding.monthlyPayment"
+              />
+            </div>
+          }
+          <div class="formfield">
+            <label for="occupancy">Occupancy</label
+            ><select id="occupancy" name="occupancy" [(ngModel)]="holding.occupancyStatus">
+              <option value="UNKNOWN">Unknown</option>
+              <option value="OWNER_OCCUPIED">Owner occupied</option>
+              <option value="RENTED">Rented</option>
+              <option value="VACANT">Vacant</option>
+            </select>
+          </div>
+          @if (holding.occupancyStatus === 'RENTED') {
+            <div class="formfield">
+              <label for="rent">Monthly rent ($)</label
+              ><input
+                id="rent"
+                name="rent"
+                type="number"
+                min="0"
+                [(ngModel)]="holding.monthlyRent"
+              />
+            </div>
+          }
+        </div>
+        <button
+          class="btn primary spacer"
+          [disabled]="!holding.propertyId || holdingForm.invalid || w.portfolio().saving > 0"
+        >
+          {{ editingHolding === null ? 'Add holding' : 'Save holding' }}
+        </button>
+        <p class="sourcedata">
+          Amounts describe the full property. The summary applies ownership share once.
+        </p>
+      </fieldset>
+    </form>
+    @if (w.portfolio().selectedHoldingId; as holdingId) {
+      <div class="panel section">
+        <h3>Actual financial records · {{ holdingName(holdingId) }}</h3>
+        <form class="section" (ngSubmit)="recordPage(0)">
+          <fieldset class="filterbar" [disabled]="w.portfolio().saving > 0">
+            <div class="formfield">
+              <label for="recordFrom">From</label
+              ><input id="recordFrom" name="recordFrom" type="date" [(ngModel)]="recordFrom" />
+            </div>
+            <div class="formfield">
+              <label for="recordTo">Through</label
+              ><input id="recordTo" name="recordTo" type="date" [(ngModel)]="recordTo" />
+            </div>
+            <button class="btn" [disabled]="!!recordFrom && !!recordTo && recordFrom > recordTo">
+              Filter records
+            </button>
+          </fieldset>
+          @if (!!recordFrom && !!recordTo && recordFrom > recordTo) {
+            <p class="field-error" role="alert">
+              The start date must be on or before the end date.
+            </p>
+          }
+        </form>
+        <gz-request-status
+          [loading]="w.portfolio().recordsLoading"
+          [error]="w.portfolio().errors.records"
+          (retry)="recordPage(w.portfolio().records?.page ?? 0)"
+        />
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Amount</th>
+                <th>Notes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of w.portfolio().records?.content; track r.id) {
+                <tr>
+                  <td>{{ r.transactionDate | date }}</td>
+                  <td>{{ r.category | label }} · {{ r.type | label }}</td>
+                  <td>{{ money(r.amount) }}</td>
+                  <td>{{ r.description || '—' }}</td>
+                  <td>
+                    <div class="actions">
+                      <button class="btn small" (click)="editRecord(r)">Edit</button
+                      ><button
+                        class="btn small"
+                        [disabled]="w.portfolio().saving > 0"
+                        (click)="removeRecord(r)"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                @if (!w.portfolio().recordsLoading) {
+                  <tr>
+                    <td colspan="5">No financial records in this period.</td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (w.portfolio().records; as rp) {
+          <gz-pagination
+            [page]="rp.page"
+            [pages]="rp.totalPages"
+            [total]="rp.totalElements"
+            [loading]="w.portfolio().recordsLoading"
+            (changed)="recordPage($event)"
+          />
+        }
+      </div>
+      <form
+        class="panel section"
+        #recordForm="ngForm"
+        (ngSubmit)="recordForm.valid && saveRecord()"
+      >
+        <fieldset [disabled]="w.portfolio().saving > 0">
+          <h3>
+            {{
+              editingRecord === null
+                ? 'Record actual income or expense'
+                : 'Correct a financial record'
+            }}
+          </h3>
+          <div class="formgrid section">
+            <div class="formfield">
+              <label for="category">Category</label
+              ><select id="category" name="category" [(ngModel)]="category">
+                @for (c of categories; track c) {
+                  <option [value]="c">{{ c | label }}</option>
+                }
+              </select>
+            </div>
+            <div class="formfield">
+              <label for="amount">Full-property amount ($)</label
+              ><input
+                id="amount"
+                name="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                [(ngModel)]="amount"
+                required
+              />
+            </div>
+            <div class="formfield">
+              <label for="transactionDate">Transaction date</label
+              ><input
+                id="transactionDate"
+                name="transactionDate"
+                type="date"
+                [(ngModel)]="transactionDate"
+                required
+              />
+            </div>
+            <div class="formfield">
+              <label for="recordDescription">Notes</label
+              ><input
+                id="recordDescription"
+                name="recordDescription"
+                [(ngModel)]="recordDescription"
+              />
+            </div>
+            <div class="formfield">
+              <label for="periodStart">Covered period from (optional)</label
+              ><input id="periodStart" name="periodStart" type="date" [(ngModel)]="periodStart" />
+            </div>
+            <div class="formfield">
+              <label for="periodEnd">Covered period through (optional)</label
+              ><input id="periodEnd" name="periodEnd" type="date" [(ngModel)]="periodEnd" />
+            </div>
+          </div>
+          <div class="actions spacer">
+            <button class="btn primary" [disabled]="recordForm.invalid || w.portfolio().saving > 0">
+              Save record</button
+            ><button class="btn" type="button" (click)="resetRecord()">New record</button>
+          </div>
+          <p class="sourcedata">
+            Actual cash transactions, not projected rent or profit. Mortgage payments can include
+            principal.
+          </p>
+        </fieldset>
+      </form>
+    }
+  }
+}

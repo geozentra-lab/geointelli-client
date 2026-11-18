@@ -1,0 +1,813 @@
+<gz-heading
+  eyebrow="CLIENT WORKSPACE"
+  title="Every relationship, in one place."
+  subtitle="Track clients, leads, follow-up tasks and property deals with a full activity history."
+/>
+@if (!w.auth.isLoggedIn()) {
+  <div class="panel section guest-notice">
+    <h3>Keep your client work organized.</h3>
+    <p class="sub spacer">
+      Sign in to manage your clients, leads, tasks and deals. Your records are private to your
+      account.
+    </p>
+    <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
+  </div>
+} @else {
+  <div class="tabs" role="tablist" aria-label="Client workspace">
+    @for (t of tabs; track t[0]) {
+      <button
+        type="button"
+        role="tab"
+        [id]="'crm-tab-' + t[0]"
+        [attr.data-tab]="t[0]"
+        [attr.aria-controls]="'crm-panel-' + t[0]"
+        [attr.aria-selected]="tab() === t[0]"
+        [attr.tabindex]="tab() === t[0] ? 0 : -1"
+        [class.active]="tab() === t[0]"
+        (keydown)="onTabKey($event)"
+        (click)="select(t[0])"
+      >
+        {{ t[1] }}
+      </button>
+    }
+  </div>
+  <gz-request-status [error]="crm().saveError" [showRetry]="false" />
+  <div
+    role="tabpanel"
+    [id]="'crm-panel-' + tab()"
+    [attr.aria-labelledby]="'crm-tab-' + tab()"
+    tabindex="0"
+  >
+    @switch (tab()) {
+      @case ('overview') {
+        <gz-request-status
+          [loading]="crm().overviewLoading && !crm().summary"
+          loadingText="Loading your workspace…"
+          [error]="crm().overviewError"
+          (retry)="select('overview')"
+        />
+        @if (crm().summary; as s) {
+          <div class="grid cols4 section">
+            <gz-metric label="Open tasks" [value]="s.open" detail="Waiting to start" />
+            <gz-metric label="In progress" [value]="s.inProgress" detail="Being worked on" />
+            <gz-metric
+              label="Overdue"
+              [value]="s.overdue"
+              [detail]="s.overdue ? 'Past their due date' : 'Nothing overdue'"
+              [positive]="!s.overdue"
+            />
+            <gz-metric label="Completed" [value]="s.completed" detail="Done so far" />
+          </div>
+        }
+        <div class="grid cols2 section">
+          @if (crm().pipeline; as p) {
+            <div class="panel">
+              <div class="panelhead">
+                <h3>Deal pipeline</h3>
+                <span class="tag">{{ p.total }} {{ p.total === 1 ? 'deal' : 'deals' }}</span>
+              </div>
+              <gz-stage-bars
+                [rows]="pipelineRows()"
+                link="/crm/deals"
+                param="stage"
+                label="Deals by stage"
+              />
+              @if (!p.total) {
+                <p class="sub spacer">No deals yet. Create one from the Deals tab.</p>
+              }
+              <p class="sourcedata">As of {{ p.asOf | date: 'medium' }}</p>
+            </div>
+          }
+          @if (crm().activities; as feed) {
+            <div class="panel">
+              <div class="panelhead"><h3>Recent activity</h3></div>
+              @for (a of feed.content; track a.id) {
+                <div class="lineitem">
+                  <div>
+                    <strong>{{ label(a.activityType) }}</strong>
+                    @if (a.description) {
+                      <p class="smalltext">{{ a.description }}</p>
+                    }
+                    <span class="smalltext">{{ a.createdAt | date: 'medium' }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn small ghost"
+                    (click)="openSubject(a.subjectType)"
+                  >
+                    View
+                  </button>
+                </div>
+              } @empty {
+                <p class="sub spacer">
+                  No activity yet. Add your first client to start building your history.
+                </p>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      @case ('clients') {
+        <form class="panel" #cf="ngForm" (ngSubmit)="cf.valid && createClient()">
+          <h3>Add a client</h3>
+          <fieldset class="formgrid section" [disabled]="crm().saving > 0">
+            <div class="formfield">
+              <label for="clientName">Name</label
+              ><input
+                id="clientName"
+                name="name"
+                [(ngModel)]="client.name"
+                maxlength="120"
+                required
+              />
+            </div>
+            <div class="formfield">
+              <label for="clientEmail">Email</label
+              ><input
+                id="clientEmail"
+                name="email"
+                type="email"
+                email
+                maxlength="254"
+                [(ngModel)]="client.email"
+              />
+            </div>
+            <div class="formfield">
+              <label for="clientPhone">Phone</label
+              ><input
+                id="clientPhone"
+                name="phone"
+                type="tel"
+                maxlength="40"
+                pattern="\+?[0-9][0-9 ().\-]{5,38}"
+                [(ngModel)]="client.phone"
+              />
+            </div>
+            <div class="formfield full">
+              <label for="clientNotes">Notes</label
+              ><textarea
+                class="field"
+                id="clientNotes"
+                name="notes"
+                rows="2"
+                maxlength="2000"
+                [(ngModel)]="client.notes"
+              ></textarea>
+            </div>
+            <p class="sub smalltext">An email address or phone number is required.</p>
+            <div class="actions">
+              <button
+                class="btn primary"
+                [disabled]="
+                  cf.invalid || crm().saving > 0 || (!client.email.trim() && !client.phone.trim())
+                "
+              >
+                {{ crm().saving ? 'Saving…' : 'Add client' }}
+              </button>
+            </div>
+          </fieldset>
+        </form>
+        <gz-request-status
+          [loading]="crm().clients.loading && !clients().length"
+          [error]="crm().clients.error"
+          (retry)="loadClients(crm().clients.page)"
+        />
+        <div class="panel section">
+          @for (c of clients(); track c.id) {
+            <section class="crm-row">
+              <div class="crm-main">
+                @if (editingClient() === c.id) {
+                  <form class="formgrid" #ef="ngForm" (ngSubmit)="ef.valid && saveClient(c)">
+                    <div class="formfield">
+                      <label [for]="'editName' + c.id">Name</label
+                      ><input
+                        [id]="'editName' + c.id"
+                        name="name"
+                        [(ngModel)]="edit.name"
+                        maxlength="120"
+                        required
+                      />
+                    </div>
+                    <div class="formfield">
+                      <label [for]="'editEmail' + c.id">Email</label
+                      ><input
+                        [id]="'editEmail' + c.id"
+                        name="email"
+                        type="email"
+                        email
+                        maxlength="254"
+                        [(ngModel)]="edit.email"
+                      />
+                    </div>
+                    <div class="formfield">
+                      <label [for]="'editPhone' + c.id">Phone</label
+                      ><input
+                        [id]="'editPhone' + c.id"
+                        name="phone"
+                        type="tel"
+                        maxlength="40"
+                        pattern="\+?[0-9][0-9 ().\-]{5,38}"
+                        [(ngModel)]="edit.phone"
+                      />
+                    </div>
+                    <div class="formfield full">
+                      <label [for]="'editNotes' + c.id">Notes</label
+                      ><textarea
+                        class="field"
+                        [id]="'editNotes' + c.id"
+                        name="notes"
+                        rows="2"
+                        maxlength="2000"
+                        [(ngModel)]="edit.notes"
+                      ></textarea>
+                    </div>
+                    <div class="actions">
+                      <button class="btn small primary" [disabled]="ef.invalid || crm().saving > 0">
+                        {{ crm().saving ? 'Saving…' : 'Save' }}</button
+                      ><button type="button" class="btn small" (click)="editingClient.set(null)">
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                } @else {
+                  <strong>{{ c.name }}</strong>
+                  <p>{{ c.email || 'No email' }} · {{ c.phone || 'No phone' }}</p>
+                  @if (c.notes) {
+                    <p>{{ c.notes }}</p>
+                  }
+                  <p class="smalltext">Added {{ c.createdAt | date: 'mediumDate' }}</p>
+                }
+                @if (expanded() === 'CLIENT:' + c.id) {
+                  <gz-crm-history subject="CLIENT" [id]="c.id" />
+                }
+              </div>
+              @if (editingClient() !== c.id) {
+                <div class="actions">
+                  <button
+                    type="button"
+                    class="btn small"
+                    [attr.aria-expanded]="expanded() === 'CLIENT:' + c.id"
+                    (click)="toggleHistory('CLIENT', c.id)"
+                  >
+                    {{
+                      expanded() === 'CLIENT:' + c.id ? 'Hide history' : 'Notes & history'
+                    }}</button
+                  ><button
+                    type="button"
+                    class="btn small"
+                    [disabled]="crm().saving > 0"
+                    (click)="startEdit(c)"
+                  >
+                    Edit</button
+                  ><button
+                    type="button"
+                    class="btn small"
+                    [disabled]="crm().saving > 0"
+                    (click)="deleteClient(c)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              }
+            </section>
+          } @empty {
+            @if (!crm().clients.loading && !crm().clients.error) {
+              <p class="sub">No clients yet. Add your first contact above.</p>
+            }
+          }
+          <gz-pagination
+            [page]="crm().clients.page"
+            [pages]="crm().clients.totalPages"
+            [total]="crm().clients.totalElements"
+            [loading]="crm().clients.loading"
+            (changed)="loadClients($event)"
+          />
+        </div>
+      }
+
+      @case ('leads') {
+        <form class="panel" #lf="ngForm" (ngSubmit)="lf.valid && createLead()">
+          <h3>Capture a lead</h3>
+          @if (crm().options.loaded && !crm().options.clients.length) {
+            <p class="insight section">
+              Leads belong to a client. Add a client first.
+              <button type="button" class="btn small" (click)="select('clients')">
+                Add a client
+              </button>
+            </p>
+          }
+          <fieldset class="formgrid section" [disabled]="crm().saving > 0">
+            <div class="formfield">
+              <label for="leadClient">Client</label
+              ><select id="leadClient" name="clientId" [(ngModel)]="lead.clientId" required>
+                <option [ngValue]="null">Choose a client</option>
+                @for (c of crm().options.clients; track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="formfield">
+              <label for="leadTitle">Title</label
+              ><input
+                id="leadTitle"
+                name="title"
+                [(ngModel)]="lead.title"
+                maxlength="160"
+                required
+                placeholder="e.g. Looking for a 3-bed in Coral Gables"
+              />
+            </div>
+            <div class="formfield">
+              <label for="leadSource">Source</label
+              ><input
+                id="leadSource"
+                name="source"
+                list="leadSources"
+                [(ngModel)]="lead.source"
+                maxlength="80"
+                required
+              /><datalist id="leadSources">
+                @for (s of sources; track s) {
+                  <option [value]="s"></option>
+                }
+              </datalist>
+            </div>
+            <gz-property-picker
+              class="full"
+              label="Property (optional)"
+              [propertyId]="lead.propertyId"
+              [disabled]="crm().saving > 0"
+              (selected)="lead.propertyId = $event"
+            />
+            <div class="formfield full">
+              <label for="leadNotes">Notes</label
+              ><textarea
+                class="field"
+                id="leadNotes"
+                name="notes"
+                rows="2"
+                maxlength="2000"
+                [(ngModel)]="lead.notes"
+              ></textarea>
+            </div>
+            <div class="actions">
+              <button class="btn primary" [disabled]="lf.invalid || crm().saving > 0">
+                {{ crm().saving ? 'Saving…' : 'Capture lead' }}
+              </button>
+            </div>
+          </fieldset>
+        </form>
+        <div class="panel section">
+          <div class="crm-filter inline-filter">
+            <label for="leadFilter">Stage</label
+            ><select
+              id="leadFilter"
+              class="field"
+              [ngModel]="crm().leads.filter"
+              (ngModelChange)="loadLeads(0, $event)"
+            >
+              <option [ngValue]="null">All stages</option>
+              @for (s of leadStages; track s) {
+                <option [ngValue]="s">{{ label(s) }}</option>
+              }
+            </select>
+          </div>
+          <gz-request-status
+            [loading]="crm().leads.loading && !leads().length"
+            [error]="crm().leads.error"
+            (retry)="loadLeads(crm().leads.page)"
+          />
+          @for (l of leads(); track l.id) {
+            <section class="crm-row">
+              <div class="crm-main">
+                <strong>{{ l.title }}</strong>
+                <span class="tag" [class.green]="l.stage === 'CONVERTED'">{{
+                  label(l.stage)
+                }}</span>
+                <p>
+                  {{ clientName(l.clientId) }} · {{ l.source }}
+                  @if (l.propertyId) {
+                    · <gz-property-ref [propertyId]="l.propertyId" />
+                  }
+                </p>
+                @if (l.notes) {
+                  <p>{{ l.notes }}</p>
+                }
+                <p class="smalltext">Updated {{ l.updatedAt | date: 'medium' }}</p>
+                @if (expanded() === 'LEAD:' + l.id) {
+                  <gz-crm-history subject="LEAD" [id]="l.id" />
+                }
+              </div>
+              <div class="actions">
+                @for (next of nextLeadStages(l.stage); track next) {
+                  <button
+                    type="button"
+                    class="btn small"
+                    [class.primary]="next !== 'LOST'"
+                    [disabled]="crm().saving > 0"
+                    (click)="moveLead(l.id, next)"
+                  >
+                    {{ next === 'LOST' ? 'Mark lost' : 'Move to ' + label(next) }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="btn small"
+                  [attr.aria-expanded]="expanded() === 'LEAD:' + l.id"
+                  (click)="toggleHistory('LEAD', l.id)"
+                >
+                  {{ expanded() === 'LEAD:' + l.id ? 'Hide history' : 'Notes & history' }}
+                </button>
+              </div>
+            </section>
+          } @empty {
+            @if (!crm().leads.loading && !crm().leads.error) {
+              <p class="sub">
+                {{
+                  crm().leads.filter
+                    ? 'No leads in this stage.'
+                    : 'No leads yet. Capture one above.'
+                }}
+              </p>
+            }
+          }
+          <gz-pagination
+            [page]="crm().leads.page"
+            [pages]="crm().leads.totalPages"
+            [total]="crm().leads.totalElements"
+            [loading]="crm().leads.loading"
+            (changed)="loadLeads($event)"
+          />
+        </div>
+      }
+
+      @case ('tasks') {
+        <form class="panel" #tf="ngForm" (ngSubmit)="tf.valid && createTask()">
+          <h3>Create a follow-up task</h3>
+          <fieldset class="formgrid section" [disabled]="crm().saving > 0">
+            <div class="formfield">
+              <label for="taskTitle">Title</label
+              ><input
+                id="taskTitle"
+                name="title"
+                [(ngModel)]="task.title"
+                maxlength="160"
+                required
+              />
+            </div>
+            <div class="formfield">
+              <label for="taskDue">Due (optional)</label
+              ><input id="taskDue" name="dueAt" type="datetime-local" [(ngModel)]="task.dueAt" />
+            </div>
+            <div class="formfield">
+              <label for="taskClient">Client (optional)</label
+              ><select id="taskClient" name="clientId" [(ngModel)]="task.clientId">
+                <option [ngValue]="null">None</option>
+                @for (c of crm().options.clients; track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="formfield">
+              <label for="taskLead">Lead (optional)</label
+              ><select id="taskLead" name="leadId" [(ngModel)]="task.leadId">
+                <option [ngValue]="null">None</option>
+                @for (l of crm().options.leads; track l.id) {
+                  <option [ngValue]="l.id">{{ l.title }}</option>
+                }
+              </select>
+            </div>
+            <div class="formfield">
+              <label for="taskDeal">Deal (optional)</label
+              ><select id="taskDeal" name="transactionId" [(ngModel)]="task.transactionId">
+                <option [ngValue]="null">None</option>
+                @for (d of crm().options.deals; track d.id) {
+                  <option [ngValue]="d.id">{{ d.title }}</option>
+                }
+              </select>
+            </div>
+            <gz-property-picker
+              class="full"
+              label="Property (optional)"
+              [propertyId]="task.propertyId"
+              [disabled]="crm().saving > 0"
+              (selected)="task.propertyId = $event"
+            />
+            <div class="formfield full">
+              <label for="taskDescription">Description</label
+              ><textarea
+                class="field"
+                id="taskDescription"
+                name="description"
+                rows="2"
+                maxlength="2000"
+                [(ngModel)]="task.description"
+              ></textarea>
+            </div>
+            <p class="sub smalltext">
+              A linked lead or deal fills in its client and property. Links cannot be changed later.
+            </p>
+            <div class="actions">
+              <button class="btn primary" [disabled]="tf.invalid || crm().saving > 0">
+                {{ crm().saving ? 'Saving…' : 'Create task' }}
+              </button>
+            </div>
+          </fieldset>
+        </form>
+        <div class="panel section">
+          <div class="crm-filter inline-filter">
+            <label for="taskFilter">Status</label
+            ><select
+              id="taskFilter"
+              class="field"
+              [ngModel]="crm().tasks.filter"
+              (ngModelChange)="loadTasks(0, $event)"
+            >
+              <option [ngValue]="null">All tasks</option>
+              @for (s of taskStatuses; track s) {
+                <option [ngValue]="s">{{ label(s) }}</option>
+              }
+            </select>
+          </div>
+          <gz-request-status
+            [loading]="crm().tasks.loading && !tasks().length"
+            [error]="crm().tasks.error"
+            (retry)="loadTasks(crm().tasks.page)"
+          />
+          @for (t of tasks(); track t.id) {
+            <section class="crm-row">
+              <div class="crm-main">
+                <strong>{{ t.title }}</strong>
+                <span class="tag" [class.green]="t.status === 'COMPLETED'">{{
+                  label(t.status)
+                }}</span>
+                @if (t.overdue) {
+                  <span class="tag red">Overdue</span>
+                }
+                @if (t.description) {
+                  <p>{{ t.description }}</p>
+                }
+                <p>
+                  {{ t.dueAt ? 'Due ' + (t.dueAt | date: 'medium') : 'No due date' }}
+                  @if (t.completedAt) {
+                    · Completed {{ t.completedAt | date: 'medium' }}
+                  }
+                </p>
+                @if (t.clientId || t.propertyId) {
+                  <p>
+                    @if (t.clientId) {
+                      {{ clientName(t.clientId) }}
+                    }
+                    @if (t.clientId && t.propertyId) {
+                      ·
+                    }
+                    @if (t.propertyId) {
+                      <gz-property-ref [propertyId]="t.propertyId" />
+                    }
+                  </p>
+                }
+                @if (expanded() === 'TASK:' + t.id) {
+                  <gz-crm-history subject="TASK" [id]="t.id" />
+                }
+              </div>
+              <div class="actions">
+                @for (next of nextTaskStatuses(t.status); track next) {
+                  <button
+                    type="button"
+                    class="btn small"
+                    [class.primary]="next === 'COMPLETED'"
+                    [disabled]="crm().saving > 0"
+                    (click)="moveTask(t.id, next)"
+                  >
+                    {{
+                      next === 'OPEN'
+                        ? t.status === 'IN_PROGRESS'
+                          ? 'Pause'
+                          : 'Reopen'
+                        : next === 'IN_PROGRESS'
+                          ? 'Start'
+                          : next === 'COMPLETED'
+                            ? 'Complete'
+                            : 'Cancel'
+                    }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="btn small"
+                  [attr.aria-expanded]="expanded() === 'TASK:' + t.id"
+                  (click)="toggleHistory('TASK', t.id)"
+                >
+                  {{ expanded() === 'TASK:' + t.id ? 'Hide history' : 'History' }}</button
+                ><button
+                  type="button"
+                  class="btn small"
+                  [disabled]="crm().saving > 0"
+                  (click)="deleteTask(t)"
+                >
+                  Delete
+                </button>
+              </div>
+            </section>
+          } @empty {
+            @if (!crm().tasks.loading && !crm().tasks.error) {
+              <p class="sub">
+                {{
+                  crm().tasks.filter
+                    ? 'No tasks with this status.'
+                    : 'No tasks yet. Plan your next follow-up above.'
+                }}
+              </p>
+            }
+          }
+          <gz-pagination
+            [page]="crm().tasks.page"
+            [pages]="crm().tasks.totalPages"
+            [total]="crm().tasks.totalElements"
+            [loading]="crm().tasks.loading"
+            (changed)="loadTasks($event)"
+          />
+        </div>
+      }
+
+      @case ('deals') {
+        <form class="panel" #df="ngForm" (ngSubmit)="df.valid && createDeal()">
+          <h3>Create a deal</h3>
+          @if (crm().options.loaded && !crm().options.clients.length) {
+            <p class="insight section">
+              Deals belong to a client. Add a client first.
+              <button type="button" class="btn small" (click)="select('clients')">
+                Add a client
+              </button>
+            </p>
+          }
+          <fieldset class="formgrid section" [disabled]="crm().saving > 0">
+            <div class="formfield">
+              <label for="dealTitle">Title</label
+              ><input
+                id="dealTitle"
+                name="title"
+                [(ngModel)]="deal.title"
+                maxlength="160"
+                required
+              />
+            </div>
+            <div class="formfield">
+              <label for="dealClient">Client</label
+              ><select
+                id="dealClient"
+                name="clientId"
+                [(ngModel)]="deal.clientId"
+                (ngModelChange)="deal.leadId = null"
+                required
+              >
+                <option [ngValue]="null">Choose a client</option>
+                @for (c of crm().options.clients; track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </div>
+            <gz-property-picker
+              class="full"
+              label="Property"
+              [propertyId]="deal.propertyId"
+              [disabled]="crm().saving > 0"
+              (selected)="deal.propertyId = $event"
+            />
+            <div class="formfield">
+              <label for="dealLead">Lead (optional)</label
+              ><select
+                id="dealLead"
+                name="leadId"
+                [(ngModel)]="deal.leadId"
+                [disabled]="!deal.clientId"
+              >
+                <option [ngValue]="null">None</option>
+                @for (l of dealLeads(); track l.id) {
+                  <option [ngValue]="l.id">{{ l.title }}</option>
+                }
+              </select>
+            </div>
+            <div class="formfield">
+              <label for="dealClose">Expected close (optional)</label
+              ><input
+                id="dealClose"
+                name="expectedCloseDate"
+                type="date"
+                min="1900-01-01"
+                max="2199-12-31"
+                [(ngModel)]="deal.expectedCloseDate"
+              />
+            </div>
+            <div class="formfield full">
+              <label for="dealDescription">Description</label
+              ><textarea
+                class="field"
+                id="dealDescription"
+                name="description"
+                rows="2"
+                maxlength="2000"
+                [(ngModel)]="deal.description"
+              ></textarea>
+            </div>
+            <div class="actions">
+              <button
+                class="btn primary"
+                [disabled]="df.invalid || !deal.propertyId || crm().saving > 0"
+              >
+                {{ crm().saving ? 'Saving…' : 'Create deal' }}
+              </button>
+            </div>
+          </fieldset>
+        </form>
+        <div class="panel section">
+          <div class="crm-filter inline-filter">
+            <label for="dealFilter">Stage</label
+            ><select
+              id="dealFilter"
+              class="field"
+              [ngModel]="crm().deals.filter"
+              (ngModelChange)="loadDeals(0, $event)"
+            >
+              <option [ngValue]="null">All stages</option>
+              @for (s of dealStages; track s) {
+                <option [ngValue]="s">{{ label(s) }}</option>
+              }
+            </select>
+          </div>
+          <gz-request-status
+            [loading]="crm().deals.loading && !deals().length"
+            [error]="crm().deals.error"
+            (retry)="loadDeals(crm().deals.page)"
+          />
+          @for (d of deals(); track d.id) {
+            <section class="crm-row">
+              <div class="crm-main">
+                <strong>{{ d.title }}</strong>
+                <span class="tag" [class.green]="d.stage === 'CLOSED'">{{ label(d.stage) }}</span>
+                <p>
+                  {{ clientName(d.clientId) }} ·
+                  <gz-property-ref [propertyId]="d.propertyId" />
+                </p>
+                @if (d.description) {
+                  <p>{{ d.description }}</p>
+                }
+                <p class="smalltext">
+                  @if (d.closedAt) {
+                    Closed {{ d.closedAt | date: 'mediumDate' }}
+                  } @else if (d.expectedCloseDate) {
+                    Expected to close {{ d.expectedCloseDate | date: 'mediumDate' }}
+                  } @else {
+                    No expected close date
+                  }
+                </p>
+                @if (expanded() === 'TRANSACTION:' + d.id) {
+                  <gz-crm-history subject="TRANSACTION" [id]="d.id" />
+                }
+              </div>
+              <div class="actions">
+                @for (next of nextDealStages(d.stage); track next) {
+                  <button
+                    type="button"
+                    class="btn small"
+                    [class.primary]="next !== 'CANCELLED'"
+                    [disabled]="crm().saving > 0"
+                    (click)="moveDeal(d.id, next)"
+                  >
+                    {{ next === 'CANCELLED' ? 'Cancel deal' : 'Move to ' + label(next) }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="btn small"
+                  [attr.aria-expanded]="expanded() === 'TRANSACTION:' + d.id"
+                  (click)="toggleHistory('TRANSACTION', d.id)"
+                >
+                  {{ expanded() === 'TRANSACTION:' + d.id ? 'Hide history' : 'History' }}
+                </button>
+              </div>
+            </section>
+          } @empty {
+            @if (!crm().deals.loading && !crm().deals.error) {
+              <p class="sub">
+                {{
+                  crm().deals.filter
+                    ? 'No deals in this stage.'
+                    : 'No deals yet. Create one above to track it through your pipeline.'
+                }}
+              </p>
+            }
+          }
+          <gz-pagination
+            [page]="crm().deals.page"
+            [pages]="crm().deals.totalPages"
+            [total]="crm().deals.totalElements"
+            [loading]="crm().deals.loading"
+            (changed)="loadDeals($event)"
+          />
+        </div>
+      }
+    }
+  </div>
+}

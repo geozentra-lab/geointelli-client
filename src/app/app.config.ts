@@ -1,11 +1,32 @@
-import { APP_INITIALIZER, ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
-import { provideRouter } from '@angular/router';
-import { provideAnimations } from '@angular/platform-browser/animations';
-import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
+import {
+  APP_INITIALIZER,
+  ApplicationConfig,
+  ErrorHandler,
+  inject,
+  provideBrowserGlobalErrorListeners,
+} from '@angular/core';
+import { provideRouter, withNavigationErrorHandler } from '@angular/router';
+import { UiActions } from './store/ui/ui.actions';
+import { Store } from '@ngrx/store';
+import {
+  AppErrorHandler,
+  isChunkLoadError,
+  reloadForNewVersion,
+} from './core/errors/app-error-handler';
+import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import {
+  HTTP_INTERCEPTORS,
+  provideHttpClient,
+  withInterceptors,
+  withInterceptorsFromDi,
+} from '@angular/common/http';
 
 import { routes } from './app.routes';
 import { KeycloakService } from './core/auth/keycloak.service';
-import { AuthInterceptor } from './core/auth/auth-interceptor';
+import { SessionEvents } from './core/auth/session-events';
+import { AuthInterceptor } from './core/interceptors/auth.interceptor';
+import { provideAppStore } from './store';
+import { errorInterceptor } from './core/interceptors/error.interceptor';
 
 export function initializeKeycloak(keycloak: KeycloakService) {
   return () => keycloak.init();
@@ -13,11 +34,26 @@ export function initializeKeycloak(keycloak: KeycloakService) {
 
 export const appConfig: ApplicationConfig = {
   providers: [
+    ...provideAppStore(),
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes),
-    provideAnimations(),
+    provideRouter(
+      routes,
+      // A page whose code fails to load (stale build after a deploy, flaky network) would otherwise
+      // make the nav link silently do nothing.
+      withNavigationErrorHandler((e) => {
+        if (isChunkLoadError(e.error) && reloadForNewVersion(e.url)) return;
+        inject(Store).dispatch(
+          UiActions.toast({
+            message: 'That page could not be opened. Check your connection and try again.',
+            kind: 'error',
+          }),
+        );
+      }),
+    ),
+    { provide: ErrorHandler, useClass: AppErrorHandler },
+    provideAnimationsAsync(),
 
-    provideHttpClient(withInterceptorsFromDi()),
+    provideHttpClient(withInterceptorsFromDi(), withInterceptors([errorInterceptor])),
 
     KeycloakService,
 
@@ -25,14 +61,14 @@ export const appConfig: ApplicationConfig = {
       provide: HTTP_INTERCEPTORS,
       useClass: AuthInterceptor,
       multi: true,
-      deps: [KeycloakService] 
+      deps: [KeycloakService, SessionEvents],
     },
 
     {
       provide: APP_INITIALIZER,
       useFactory: initializeKeycloak,
       deps: [KeycloakService],
-      multi: true
-    }
-  ]
+      multi: true,
+    },
+  ],
 };
