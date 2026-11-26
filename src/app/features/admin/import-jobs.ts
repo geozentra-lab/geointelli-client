@@ -1,426 +1,298 @@
-import { LabelPipe, labelFor } from '../../shared/pipes/label.pipe';
-import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
-import { DatePipe, DecimalPipe } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { Workspace } from '../../shared/data/workspace';
 import { PageHeading } from '../../shared/components/page-heading';
 import { RequestStatus } from '../../shared/components/request-status';
-import { Pagination } from '../../shared/components/pagination';
+import { Desk } from '../../shared/layout/desk';
+import { RecordPane } from '../../shared/layout/record-pane';
+import { TABLE_KIT } from '../../shared/table';
+import { countOf, formatLocalDateTime } from '../../shared/data/format';
+import { labelFor } from '../../shared/pipes/label.pipe';
+import { ImportJobDTO } from '../../core/models/import-job';
 import { ImportJobsActions as A } from '../../store/import-jobs/import-jobs.actions';
 import { selectImportJobs } from '../../store/import-jobs/import-jobs.selectors';
+import { AdminGate, adminAccess } from './admin-gate';
+import { ImportJobRecord } from './import-job-record';
+import { ImportForm } from './import-form';
 import {
-  ACTIVE_JOB_STATUSES,
-  CSV_DATASETS,
-  ImportJobDTO,
-  ImportUploadKind,
-  RETRY_REASONS,
-} from '../../core/models/import-job';
+  BACKFILL,
+  jobActive,
+  jobAttention,
+  jobKind,
+  jobName,
+  jobPlace,
+  jobRef,
+  jobRetryable,
+  jobStatus,
+  retryBlocked,
+} from './import-words';
 
 const POLL_MS = 5000;
-const STATUS_LABELS: Record<string, string> = {
-  QUEUED: 'Queued',
-  RUNNING: 'Running',
-  COMPLETED: 'Completed',
-  PARTIAL: 'Partly completed',
-  FAILED: 'Failed',
-  INTERRUPTED: 'Interrupted',
-};
+type Pane = 'job' | 'upload' | null;
 
-/** Tracked import jobs: progress, failures, retries and CSV uploads. Realm role "admin" only. */
+/**
+ * Import jobs (DESIGN.md §5 Register; the admin landing page): the tracked jobs as a table, newest
+ * first, server pages of 20, refreshed every 5 seconds while one is queued or running. A row opens
+ * the job in the record pane (progress, a failure in words, the records that failed or were
+ * skipped, Retry with its reason); "Import county data" opens the upload form in the same pane.
+ * Realm role "admin" only.
+ */
 @Component({
-  imports: [
-    DatePipe,
-    DecimalPipe,
-    FormsModule,
-    RouterLink,
-    PageHeading,
-    RequestStatus,
-    Pagination,
-    LabelPipe,
-  ],
-  template: `<gz-heading
-      eyebrow="ADMIN"
-      title="Import jobs"
-      subtitle="Load county data and follow background imports."
-    >
-      @if (allowed()) {
-        <button type="button" class="btn" [disabled]="s().loading" (click)="load(s().pageIndex)">
-          {{ s().loading ? 'Refreshing…' : 'Refresh' }}
-        </button>
-      }
-    </gz-heading>
-    @if (!w.auth.isLoggedIn()) {
-      <div class="panel section guest-notice">
-        <h3>Sign in as an administrator.</h3>
-        <p class="sub spacer">Import jobs are only visible to accounts with the admin role.</p>
-        <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
-      </div>
-    } @else if (!allowed()) {
-      <div class="empty">
-        Your account does not have the admin role, so import jobs are not available.
-        <a class="btn spacer" routerLink="/dashboard">Back to overview</a>
-      </div>
-    } @else {
-      <form class="panel section upload" (ngSubmit)="submit()" #form="ngForm">
-        <div class="panelhead">
-          <h3>Import county data</h3>
-          <div class="toggle" role="group" aria-label="What to upload">
-            @for (k of kinds; track k[0]) {
-              <button
-                type="button"
-                [class.active]="kind() === k[0]"
-                [attr.aria-pressed]="kind() === k[0]"
-                (click)="setKind(k[0])"
-              >
-                {{ k[1] }}
-              </button>
-            }
-          </div>
-        </div>
-        <div class="formgrid">
-          @if (kind() === 'file') {
-            <div class="formfield">
-              <label for="dataset">Dataset</label
-              ><select id="dataset" name="dataset" [(ngModel)]="dataset">
-                @for (d of datasets; track d) {
-                  <option [value]="d">{{ d }}.csv</option>
-                }
-              </select>
-            </div>
-          }
-          <div class="formfield">
-            <label for="county">County</label
-            ><input
-              id="county"
-              name="county"
-              [(ngModel)]="county"
-              required
-              placeholder="Miami-Dade"
-            />
-          </div>
-          <div class="formfield">
-            <label for="state">State</label
-            ><input id="state" name="state" [(ngModel)]="state" required placeholder="FL" />
-          </div>
-          @if (kind() === 'owners') {
-            <div class="formfield">
-              <label for="ownersFile">owners.csv</label
-              ><input id="ownersFile" type="file" accept=".csv" (change)="pick($event, 0)" />
-            </div>
-            <div class="formfield">
-              <label for="propertyOwnersFile">property_owner.csv</label
-              ><input
-                id="propertyOwnersFile"
-                type="file"
-                accept=".csv"
-                (change)="pick($event, 1)"
-              />
-            </div>
-          } @else {
-            <div class="formfield">
-              <label for="csvFiles">{{
-                kind() === 'folder' ? 'County CSV files' : dataset + '.csv'
-              }}</label
-              ><input
-                id="csvFiles"
-                type="file"
-                accept=".csv"
-                [multiple]="kind() === 'folder'"
-                (change)="pick($event)"
-              />
-            </div>
-          }
-        </div>
-        <p class="sourcedata">
-          @switch (kind()) {
-            @case ('folder') {
-              Needs properties, addresses, assessments, buildings, owners, property_owner, lands,
-              sales, taxes and extra_features CSVs; parcels, predictions and images are optional.
-              properties.csv loads first.
-            }
-            @case ('owners') {
-              Both files load in one transaction.
-            }
-            @default {
-              The county must already exist, except for properties.csv, which creates it. Existing
-              properties are never overwritten: a duplicate folio fails the job.
-            }
-          }
-        </p>
-        <button
-          class="btn primary spacer"
-          [disabled]="form.invalid || !filesReady() || s().uploading"
-        >
-          {{ s().uploading ? 'Uploading…' : 'Start import' }}
-        </button>
-        <gz-request-status [error]="s().uploadError" [showRetry]="false" />
-      </form>
-
-      <gz-request-status
-        [loading]="s().loading && !s().page"
-        loadingText="Loading import jobs…"
-        [error]="s().error"
-        (retry)="load(s().pageIndex)"
-      />
-      <gz-request-status [error]="s().retryError" [showRetry]="false" />
-      @if (s().page; as p) {
-        @if (active()) {
-          <p class="insight section" role="status">
-            {{ active() }} {{ active() === 1 ? 'job is' : 'jobs are' }} still running. This page
-            refreshes every few seconds.
-          </p>
+  imports: [DecimalPipe, PageHeading, RequestStatus, Desk, RecordPane, AdminGate, ImportJobRecord, ImportForm, ...TABLE_KIT],
+  template: `<gz-desk [open]="pane() !== null" [label]="paneLabel()" (closed)="closePane()">
+      <gz-heading title="Import jobs" subtitle="County data loads and image backfills, newest first.">
+        @if (access() === 'admin') {
+          <button type="button" class="btn" [attr.aria-disabled]="s().loading ? 'true' : null" (click)="refresh()">
+            {{ s().loading ? 'Refreshing…' : 'Refresh' }}
+          </button>
+          <button type="button" class="btn primary" #newButton (click)="openUpload()">Import county data</button>
         }
-        <div class="tablewrap section">
-          <table>
-            <caption class="sr-only">
-              Tracked import jobs, newest first
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Job</th>
-                <th scope="col">Status</th>
-                <th scope="col">Progress</th>
-                <th scope="col">Outcome</th>
-                <th scope="col">Started</th>
-                <th scope="col"><span class="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (j of p.jobs.content; track j.id) {
-                <tr [class.selected]="s().selectedId === j.id">
-                  <td>
-                    {{ jobTitle(j) }}
-                    <div class="smalltext muted">
-                      {{ shortId(j) }}
-                      @if (j.sourceCounty) {
-                        · {{ j.sourceCounty }}{{ j.sourceState ? ', ' + j.sourceState : '' }}
-                      } @else if (j.countyId) {
-                        · County {{ j.countyId }}
-                      }
-                      @if ((j.attempt ?? 1) > 1) {
-                        · attempt {{ j.attempt }}
-                      }
-                    </div>
-                  </td>
-                  <td>
-                    <span class="tag" [class]="tone(j.status)">{{ statusLabel(j.status) }}</span>
-                    @if (j.errorCode) {
-                      <div class="smalltext muted">{{ j.errorCode }}</div>
-                    }
-                  </td>
-                  <td>
-                    <progress
-                      [value]="j.processed"
-                      [max]="j.total || 1"
-                      [attr.aria-label]="jobTitle(j) + ' progress'"
-                    ></progress>
-                    <div class="smalltext muted">
-                      {{ j.processed | number }} / {{ j.total | number }}
-                      @if (j.currentStep && isActive(j)) {
-                        · {{ j.currentStep }}
-                      }
-                    </div>
-                  </td>
-                  <td class="smalltext">
-                    {{ j.completed | number }}
-                    {{ j.jobType === backfill ? 'with image' : 'written' }} ·
-                    {{ j.skipped | number }} skipped · {{ j.failed | number }} failed
-                  </td>
-                  <td class="smalltext">
-                    {{ j.createdAt | date: 'medium' }}
-                    @if (j.finishedAt) {
-                      <div class="muted">Finished {{ j.finishedAt | date: 'shortTime' }}</div>
-                    }
-                  </td>
-                  <td class="actions">
-                    <button
-                      type="button"
-                      class="btn small"
-                      [attr.aria-expanded]="s().selectedId === j.id"
-                      (click)="toggle(j.id)"
-                    >
-                      {{ s().selectedId === j.id ? 'Hide details' : 'Details' }}
-                    </button>
-                    @if (canRetry(j)) {
-                      <button
-                        type="button"
-                        class="btn small"
-                        [disabled]="s().retrying !== null || !j.retryable"
-                        [title]="j.retryable ? 'Resume from the last checkpoint' : blocked(j)"
-                        (click)="retry(j)"
-                      >
-                        {{ s().retrying === j.id ? 'Retrying…' : 'Retry' }}
-                      </button>
-                    }
-                  </td>
-                </tr>
-              } @empty {
-                <tr>
-                  <td colspan="6">No tracked import jobs yet.</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        <gz-pagination
-          [page]="p.jobs.page"
-          [pages]="p.jobs.totalPages"
-          [total]="p.jobs.totalElements"
-          [loading]="s().loading"
-          (changed)="load($event)"
+      </gz-heading>
+      @if (access() !== 'admin') {
+        <gz-admin-gate [access]="access()" what="the import jobs" />
+      } @else {
+        <gz-request-status
+          [loading]="s().loading && !s().page"
+          loadingText="Loading import jobs…"
+          [error]="s().error"
+          (retry)="load(s().pageIndex)"
         />
-        @if (s().selectedId !== null) {
-          <section class="panel section" aria-labelledby="job-results-title">
-            <div class="panelhead">
-              <h3 id="job-results-title">
-                {{ s().job ? jobTitle(s().job!) : 'Job' }} · {{ shortIdOf(s().selectedId!) }}
-              </h3>
-              <button type="button" class="btn small" (click)="close()">Close</button>
-            </div>
-            <gz-request-status
-              [loading]="s().jobLoading"
-              [error]="s().jobError"
-              (retry)="open(s().selectedId!)"
-            />
-            @if (s().job; as job) {
-              @if (job.errorMessage) {
-                <p class="insight danger" role="alert">{{ job.errorMessage }}</p>
-              }
-              @if (job.retryOfJobId) {
-                <p class="smalltext muted">
-                  Resumes
-                  <button type="button" class="linkbtn" (click)="open(job.retryOfJobId)">
-                    {{ shortIdOf(job.retryOfJobId) }}
-                  </button>
-                </p>
-              }
-              @if (job.retryable === false && job.retryBlockedReason && canRetry(job)) {
-                <p class="smalltext muted">Retry unavailable: {{ blocked(job) }}</p>
-              }
-              @if (job.jobType === backfill) {
-                <div class="tablewrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th scope="col">Property</th>
-                        <th scope="col">Result</th>
-                        <th scope="col">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (r of job.results ?? []; track r.propertyId) {
-                        <tr>
-                          <td>
-                            <a [routerLink]="['/property', r.propertyId]">#{{ r.propertyId }}</a>
-                          </td>
-                          <td>{{ r.status | label }}</td>
-                          <td class="smalltext">{{ r.reason || '—' }}</td>
-                        </tr>
-                      } @empty {
-                        <tr>
-                          <td colspan="3">No per-property results recorded yet.</td>
-                        </tr>
+        @if (s().page; as p) {
+          @if (p.jobs.content.length) {
+            <p class="ij-count" #count tabindex="-1" role="status">{{ countText() }}</p>
+            <table
+              gz-table
+              class="ij-table"
+              [(selected)]="selectedId"
+              (activated)="openJob($event)"
+              (dismissed)="closePane()"
+              [paneOpen]="pane() !== null"
+              [attr.aria-busy]="s().loading ? 'true' : null"
+            >
+              <caption class="sr-only">Import jobs, newest first. Choose a row to see its progress and records.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Job</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" class="num" data-priority="2">Processed</th>
+                  <th scope="col" class="num" data-priority="3">Written</th>
+                  <th scope="col" class="num" data-priority="3">Skipped</th>
+                  <th scope="col" class="num" data-priority="2">Failed</th>
+                  <th scope="col" class="num" data-priority="2">Queued</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (j of p.jobs.content; track j.id) {
+                  <tr [gz-row]="j.id">
+                    <td class="ij-job">
+                      <span class="cell-main">{{ name(j) }}</span>
+                      <span class="cell-sub">{{ sub(j) }}</span>
+                      <span class="m-only cell-sub">{{ j.processed | number }} of {{ j.total | number }} processed · {{ j.failed | number }} failed</span>
+                    </td>
+                    <td [class.attention]="attention(j.status)">
+                      {{ status(j.status) }}
+                      @if (j.currentStep && active(j)) {
+                        <span class="cell-sub">{{ j.currentStep }}</span>
                       }
-                    </tbody>
-                  </table>
-                </div>
-              } @else {
-                <div class="tablewrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th scope="col">Record</th>
-                        <th scope="col">Result</th>
-                        <th scope="col">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (r of job.items ?? []; track r.itemKey + r.status) {
-                        <tr>
-                          <td class="smalltext">{{ r.itemKey }}</td>
-                          <td>{{ r.status === 'FAILED' ? 'Failed' : 'Skipped' }}</td>
-                          <td class="smalltext">
-                            {{ r.reason || '—' }}
-                            @if (r.message) {
-                              <div class="muted">{{ r.message }}</div>
-                            }
-                          </td>
-                        </tr>
-                      } @empty {
-                        <tr>
-                          <td colspan="3">No failed or skipped records.</td>
-                        </tr>
+                    </td>
+                    <td class="num" data-priority="2">
+                      <span class="ij-bar" aria-hidden="true"><i [style.width.%]="share(j)"></i></span>
+                      {{ j.processed | number }} <span class="ij-of">of {{ j.total | number }}</span>
+                    </td>
+                    <td class="num" data-priority="3">
+                      {{ j.completed | number }}
+                      @if (j.jobType === backfill) {
+                        <span class="cell-sub">images</span>
                       }
-                    </tbody>
-                  </table>
-                </div>
-                @if ((job.items?.length ?? 0) >= 1000) {
-                  <p class="sourcedata">
-                    Only the first 1,000 failed or skipped records are listed.
-                  </p>
+                    </td>
+                    <td class="num" data-priority="3">{{ j.skipped | number }}</td>
+                    <td class="num" data-priority="2">{{ j.failed | number }}</td>
+                    <td class="num nowrap" data-priority="2">{{ when(j.createdAt) }}</td>
+                  </tr>
                 }
+              </tbody>
+            </table>
+            <gz-pager
+              [page]="p.jobs.page"
+              [size]="p.jobs.size"
+              [total]="p.jobs.totalElements"
+              [loading]="s().loading"
+              (changed)="page($event)"
+            />
+            <p class="table-note">
+              Times are your own clock. Written: records loaded, or images saved by an image backfill.
+              @if (p.untrackedJobTypes.length) {
+                Not tracked here: {{ untracked() }}.{{ p.note ? ' ' + p.note : '' }}
               }
-            }
-          </section>
-        }
-        @if (p.untrackedJobTypes.length) {
-          <p class="sourcedata">
-            Not tracked here: {{ untracked() }}.
-            {{ p.note }}
-          </p>
+            </p>
+          } @else {
+            <p class="ij-text">No import job has run yet. Jobs appear here once county data is uploaded.</p>
+            <button type="button" class="btn primary" (click)="openUpload()">Import county data</button>
+          }
         }
       }
-    }`,
+
+      @if (pane() === 'upload') {
+        <gz-record-pane deskSlot heading="Import county data" noun="import" backLabel="Import jobs" (closed)="closePane()">
+          <gz-import-form />
+        </gz-record-pane>
+      } @else if (paneJob(); as j) {
+        <gz-record-pane
+          deskSlot
+          [heading]="name(j)"
+          noun="job"
+          backLabel="Import jobs"
+          [position]="position()"
+          [hasPrev]="paneIndex() > 0"
+          [hasNext]="paneIndex() >= 0 && paneIndex() < rows().length - 1"
+          (prev)="step(-1)"
+          (next)="step(1)"
+          (closed)="closePane()"
+        >
+          <span paneMeta>{{ status(j.status) }}{{ sub(j) ? ' · ' + sub(j) : '' }}</span>
+          @if (retryable(j)) {
+            <div paneActions class="ij-pane-actions">
+              <button type="button" class="btn primary"
+                [attr.aria-disabled]="blocked(j) || s().retrying !== null ? 'true' : null"
+                [attr.aria-describedby]="blocked(j) ? 'ij-retry-why' : null"
+                (click)="retry(j)">
+                {{ s().retrying === j.id ? 'Retrying…' : 'Retry' }}
+              </button>
+              <p class="ij-why" id="ij-retry-why">{{ blocked(j) ?? 'Resumes from the last checkpoint.' }}</p>
+            </div>
+          }
+          @if (retryError(); as error) {
+            <p class="field-error ij-pane-error" role="alert">{{ error }}</p>
+          }
+          <gz-import-job-record
+            [job]="j"
+            [detail]="s().job?.id === j.id"
+            [loading]="s().jobLoading && s().job?.id !== j.id"
+            [error]="s().jobError"
+            (openJob)="openFromPane($event)"
+            (reload)="reloadJob()"
+          />
+        </gz-record-pane>
+      } @else if (pane() === 'job') {
+        <!-- A job that isn't on this page (an earlier attempt), while it loads or when it failed. -->
+        <gz-record-pane deskSlot heading="Import job" noun="job" backLabel="Import jobs" (closed)="closePane()">
+          <gz-request-status [loading]="s().jobLoading" loadingText="Loading the job…" [error]="s().jobError" (retry)="reloadJob()" />
+        </gz-record-pane>
+      }
+    </gz-desk>`,
   styles: `
-    progress {
-      width: 120px;
+    .ij-count {
+      margin: 0 0 var(--sp-8);
+      font-size: var(--fs-cell);
+      color: var(--ink-2);
+      outline: none;
+      scroll-margin-top: calc(var(--topbar-h) + var(--sp-8));
     }
-    tr.selected {
-      background: #f6f8f8;
+    .ij-text {
+      margin: 0 0 var(--sp-16);
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+      max-width: var(--measure);
     }
-    td.actions {
-      white-space: nowrap;
+    .ij-job {
+      min-width: 200px;
+      overflow-wrap: anywhere;
     }
-    td.actions .btn + .btn {
-      margin-left: 6px;
+    .ij-bar {
+      display: block;
+      width: 96px;
+      height: 4px;
+      margin: 6px 0 4px auto;
+      background: var(--rule);
     }
-    .upload .formgrid {
-      margin-top: 12px;
+    .ij-bar i {
+      display: block;
+      height: 100%;
+      background: var(--ink);
+    }
+    .ij-of {
+      color: var(--ink-2);
+    }
+    .ij-pane-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--sp-8);
+    }
+    .ij-why {
+      flex-basis: 100%;
+      margin: 0;
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      color: var(--ink-2);
+    }
+    .ij-pane-error {
+      margin: var(--sp-8) 0;
     }
   `,
 })
-export class ImportJobs implements OnInit {
-  w = inject(Workspace);
-  s = this.w.store.selectSignal(selectImportJobs);
-  readonly backfill = 'MAPILLARY_IMAGE_BACKFILL';
-  readonly datasets = CSV_DATASETS;
-  readonly kinds: [ImportUploadKind, string][] = [
-    ['file', 'One CSV'],
-    ['owners', 'Owners'],
-    ['folder', 'County folder'],
-  ];
-  kind = signal<ImportUploadKind>('file');
-  dataset: string = CSV_DATASETS[0];
-  county = '';
-  state = '';
-  private files = signal<(File | null)[]>([]);
-  filesReady = computed(() => {
-    const f = this.files();
-    return this.kind() === 'owners' ? !!f[0] && !!f[1] : f.length > 0 && f.every(Boolean);
+export class ImportJobs {
+  readonly w = inject(Workspace);
+  readonly s = this.w.store.selectSignal(selectImportJobs);
+  readonly access = adminAccess();
+  private readonly injector = inject(Injector);
+  private readonly countEl = viewChild<ElementRef<HTMLElement>>('count');
+  private readonly newButton = viewChild<ElementRef<HTMLElement>>('newButton');
+  readonly backfill = BACKFILL;
+
+  readonly rows = computed(() => this.s().page?.jobs.content ?? []);
+  readonly selectedId = signal<unknown>(null);
+  readonly pane = signal<Pane>(null);
+  readonly paneIndex = computed(() => this.rows().findIndex((j) => j.id === this.selectedId()));
+  /** The job in the pane: its detail answer, or its row while that loads. */
+  readonly paneJob = computed<ImportJobDTO | null>(() => {
+    if (this.pane() !== 'job') return null;
+    const id = this.selectedId();
+    const detail = this.s().job;
+    if (detail && detail.id === id) return detail;
+    return this.rows().find((j) => j.id === id) ?? null;
   });
-  allowed = computed(() => this.w.auth.isLoggedIn() && this.w.auth.hasRealmRole('admin'));
-  active = computed(
-    () =>
-      this.s().page?.jobs.content.filter((j) => ACTIVE_JOB_STATUSES.includes(j.status)).length ?? 0,
+  readonly paneLabel = computed(() =>
+    this.pane() === 'upload' ? 'Import county data' : this.paneJob() ? 'Import job: ' + jobName(this.paneJob()!) : 'Import job',
   );
-  untracked = computed(() =>
-    (this.s().page?.untrackedJobTypes ?? []).map((t) => this.typeLabel(t)).join(', '),
+  readonly position = computed(() =>
+    this.paneIndex() < 0 ? '' : `${this.paneIndex() + 1} of ${this.rows().length} on this page`,
   );
+  readonly active = jobActive;
+  readonly running = computed(() => this.rows().filter(jobActive).length);
+  readonly countText = computed(() => {
+    const total = this.s().page?.jobs.totalElements ?? 0;
+    const running = this.running();
+    return countOf(total, 'job') + (running ? ` · ${running} queued or running, refreshed every 5 seconds` : '');
+  });
+  readonly untracked = computed(() => (this.s().page?.untrackedJobTypes ?? []).map((t) => labelFor(t)).join(', '));
+  /** A retry sent from this pane that failed: shown in that job's pane only. */
+  private readonly retriedFrom = signal<string | null>(null);
+  readonly retryError = computed(() =>
+    this.s().retryError && this.retriedFrom() !== null && this.retriedFrom() === this.selectedId() ? this.s().retryError : null,
+  );
+  private focusCount = false;
+
   constructor() {
-    // Poll only while something is queued or running, and stop when the page is left.
+    // The first page, once an admin is looking.
+    effect(() => {
+      if (this.access() === 'admin') untracked(() => this.load(0));
+    });
+    // Poll while something is queued or running, and stop when the page is left.
     effect((onCleanup) => {
-      if (!this.active()) return;
+      if (!this.running() || this.access() !== 'admin') return;
       const timer = setInterval(() => {
         if (document.visibilityState === 'hidden') return;
         this.w.store.dispatch(A.load({ page: this.s().pageIndex, silent: true }));
@@ -430,89 +302,126 @@ export class ImportJobs implements OnInit {
       onCleanup(() => clearInterval(timer));
     });
     inject(DestroyRef).onDestroy(() => this.w.store.dispatch(A.closeJob()));
+    // Another job in the pane: a failed retry was the other's.
+    effect(() => {
+      const id = this.selectedId();
+      untracked(() => {
+        if (this.retriedFrom() !== null && this.retriedFrom() !== id) this.retriedFrom.set(null);
+      });
+    });
+    // The pane follows the selection: the job's detail (with its records) is asked for.
+    effect(() => {
+      const id = this.selectedId();
+      if (this.pane() !== 'job' || typeof id !== 'string') return;
+      untracked(() => {
+        if (this.s().selectedId !== id) this.w.store.dispatch(A.openJob({ id }));
+      });
+    });
+    // A retry or an upload that queued a job selects it (the store does): the pane opens on it.
+    let lastStore: string | null = null;
+    effect(() => {
+      const id = this.s().selectedId;
+      untracked(() => {
+        const was = lastStore;
+        lastStore = id;
+        if (id === null || id === was || id === this.selectedId()) return;
+        this.selectedId.set(id);
+        this.pane.set('job');
+        this.focusPaneTitle();
+      });
+    });
+    // After paging, the list starts from its count, which takes focus (DESIGN.md §7 paging).
+    effect(() => {
+      if (this.s().loading || !this.focusCount) return;
+      this.focusCount = false;
+      untracked(() => {
+        const el = this.countEl()?.nativeElement;
+        el?.scrollIntoView?.({ block: 'start' });
+        el?.focus({ preventScroll: true });
+      });
+    });
   }
-  ngOnInit() {
-    if (this.allowed()) this.load(0);
+
+  name = jobName;
+  status = jobStatus;
+  attention = jobAttention;
+  retryable = jobRetryable;
+  blocked = retryBlocked;
+  /** "CSV import · Miami-Dade, FL · attempt 2", "#214 · County ID 17". */
+  sub(j: ImportJobDTO): string {
+    return [jobKind(j) ?? jobRef(j.id), jobPlace(j), (j.attempt ?? 1) > 1 ? 'attempt ' + j.attempt : null]
+      .filter(Boolean)
+      .join(' · ');
   }
+  share(j: ImportJobDTO) {
+    return j.total > 0 ? Math.min(100, (j.processed / j.total) * 100) : 0;
+  }
+  when(v: string) {
+    return formatLocalDateTime(v);
+  }
+
   load(page: number) {
     this.w.store.dispatch(A.load({ page }));
   }
-  open(id: string) {
-    this.w.store.dispatch(A.openJob({ id }));
+  refresh() {
+    if (this.s().loading) return;
+    this.load(this.s().pageIndex);
+    const id = this.s().selectedId;
+    if (id !== null && this.pane() === 'job') this.w.store.dispatch(A.openJob({ id }));
   }
-  toggle(id: string) {
-    if (this.s().selectedId === id) this.close();
-    else this.open(id);
-  }
-  close() {
+  page(page: number) {
+    this.focusCount = true;
+    this.pane.set(null);
     this.w.store.dispatch(A.closeJob());
+    this.load(page);
   }
-  retry(j: ImportJobDTO) {
-    if (this.s().retrying === null) this.w.store.dispatch(A.retry({ id: j.id }));
+  openJob(id: unknown) {
+    if (typeof id !== 'string') return;
+    this.selectedId.set(id);
+    this.pane.set('job');
   }
-  /** Only finished ingestion jobs that did not fully complete can be resumed. */
-  canRetry(j: ImportJobDTO) {
-    return j.jobType !== this.backfill && ['FAILED', 'PARTIAL', 'INTERRUPTED'].includes(j.status);
+  /** "Resumes": the earlier job opens in the pane; its title takes focus (the link is gone). */
+  openFromPane(id: string) {
+    this.openJob(id);
+    this.focusPaneTitle();
   }
-  blocked(j: ImportJobDTO) {
-    const code = j.retryBlockedReason ?? '';
-    const reason = RETRY_REASONS[code];
-    return reason ? reason[0].toUpperCase() + reason.slice(1) : code || 'Retry is not available.';
+  openUpload() {
+    this.selectedId.set(null);
+    this.pane.set('upload');
   }
-  isActive(j: ImportJobDTO) {
-    return ACTIVE_JOB_STATUSES.includes(j.status);
+  reloadJob() {
+    const id = this.selectedId();
+    if (typeof id === 'string') this.w.store.dispatch(A.openJob({ id }));
   }
-  setKind(kind: ImportUploadKind) {
-    this.kind.set(kind);
-    this.files.set([]);
-  }
-  pick(event: Event, slot?: number) {
-    const picked = Array.from((event.target as HTMLInputElement).files ?? []);
-    if (slot === undefined) this.files.set(picked);
-    else
-      this.files.update((f) => {
-        const next = [...f];
-        next[slot] = picked[0] ?? null;
-        return next;
-      });
-  }
-  submit() {
-    if (!this.filesReady() || this.s().uploading) return;
-    this.w.store.dispatch(
-      A.upload({
-        upload: {
-          kind: this.kind(),
-          dataset: this.dataset,
-          county: this.county.trim(),
-          state: this.state.trim(),
-          files: this.files().filter((f): f is File => !!f),
-        },
-      }),
+  closePane(toNew = false) {
+    const was = this.pane();
+    if (!was) return;
+    this.pane.set(null);
+    this.retriedFrom.set(null);
+    this.w.store.dispatch(A.closeJob());
+    // Once the register is back: focus goes to the row the pane showed, or to Import county data.
+    afterNextRender(
+      () => {
+        const row = document.querySelector<HTMLElement>('.ij-table tr.gz-row.sel');
+        (was === 'job' && row && !toNew ? row : this.newButton()?.nativeElement)?.focus({ preventScroll: false });
+      },
+      { injector: this.injector },
     );
   }
-  jobTitle(j: ImportJobDTO) {
-    const what = j.dataset ? this.typeLabel(j.dataset) : null;
-    return what ? `${this.typeLabel(j.jobType)} · ${what}` : this.typeLabel(j.jobType);
+  step(by: number) {
+    const next = this.rows()[this.paneIndex() + by];
+    if (next) this.openJob(next.id);
   }
-  shortId(j: ImportJobDTO) {
-    return j.jobId !== null ? '#' + j.jobId : this.shortIdOf(j.id);
+  retry(j: ImportJobDTO) {
+    if (this.blocked(j) || this.s().retrying !== null || !this.w.requireAccount('retry imports')) return;
+    this.retriedFrom.set(j.id);
+    // The new attempt replaces this job in the pane: focus waits on the pane's title.
+    document.querySelector<HTMLElement>('.desk-slot .pane-title')?.focus();
+    this.w.store.dispatch(A.retry({ id: j.id }));
   }
-  shortIdOf(id: string) {
-    return /^\d+$/.test(id) ? '#' + id : id.slice(0, 8);
-  }
-  statusLabel(status: string) {
-    return STATUS_LABELS[status] ?? status;
-  }
-  tone(status: string) {
-    return status === 'COMPLETED'
-      ? 'tag green'
-      : status === 'FAILED' || status === 'INTERRUPTED'
-        ? 'tag red'
-        : status === 'PARTIAL'
-          ? 'tag amber'
-          : 'tag';
-  }
-  typeLabel(type: string) {
-    return labelFor(type);
+  private focusPaneTitle() {
+    afterNextRender(() => document.querySelector<HTMLElement>('.desk-slot .pane-title')?.focus(), {
+      injector: this.injector,
+    });
   }
 }

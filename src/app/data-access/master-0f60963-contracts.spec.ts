@@ -169,9 +169,9 @@ describe('Backend master 0f60963 contracts', () => {
     expect(refreshed).toBe(3);
   });
 
-  it('a license submission becomes the profile status, and a second one is refused politely', () => {
+  it('a license submission becomes the profile status, and a second one shows the backend’s reason', () => {
     // profileSaved sets the profile without the first-load requests (preferences, favorites…).
-    store.dispatch(UserActions.profileSaved({ profile: { id: 7, persona: 'REALTOR' } as UserDTO }));
+    store.dispatch(UserActions.profileSaved({ profile: { id: 7 } as UserDTO }));
     store.dispatch(
       L.submit({
         request: { licenseHolderName: 'Ana Ruiz', licensingState: 'FL', licenseNumber: 'SL123' },
@@ -190,17 +190,21 @@ describe('Backend master 0f60963 contracts', () => {
     let status: string | null | undefined;
     store.select(selectUserState).subscribe((u) => (status = u.profile?.realtorLicenseStatus));
     expect(status).toBe('PENDING_REVIEW');
+    // The submission answered the onboarding page and made the realtor role pending: re-read.
+    http.expectOne((r) => r.url.endsWith('/users/me/entitlements')).flush({});
     store.dispatch(
       L.submit({
         request: { licenseHolderName: 'Ana Ruiz', licensingState: 'FL', licenseNumber: 'SL123' },
       }),
     );
+    // A 409's message is shown as the backend wrote it (SCRUM-204).
+    const message = 'A realtor license is already pending review for this account.';
     http
       .expectOne((r) => r.method === 'POST' && r.url.endsWith('/users/me/realtor-license'))
-      .flush('conflict', { status: 409, statusText: 'Conflict' });
+      .flush({ status: 409, error: 'Conflict', message }, { status: 409, statusText: 'Conflict' });
     let error: string | null = null;
     store.select(selectRealtorLicense).subscribe((s) => (error = s.submitError));
-    expect(error).toContain('already pending or verified');
+    expect(error).toBe(message);
   });
 
   it('a retried revaluation is listed first and the failed one stays as it was', () => {

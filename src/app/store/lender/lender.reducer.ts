@@ -4,6 +4,7 @@ import {
   LenderApplicationStage,
   LenderCollateralAnalysisDTO,
   LenderImportResult,
+  LenderMemberLookupDTO,
   LenderOrganizationDTO,
   LenderPipelineDTO,
 } from '../../core/models/lender';
@@ -29,6 +30,9 @@ export interface LenderState {
   members: number[];
   membersLoading: boolean;
   membersError: string | null;
+  /** The email the owner last looked up to add, and the account found for it. */
+  memberLookupEmail: string | null;
+  memberLookup: Remote<LenderMemberLookupDTO>;
   importResult: LenderImportResult | null;
   /** In-flight writes; forms keep their drafts until the write settles without saveError. */
   saving: number;
@@ -57,6 +61,8 @@ export const initialLenderState: LenderState = {
   members: [],
   membersLoading: false,
   membersError: null,
+  memberLookupEmail: null,
+  memberLookup: idle(),
   importResult: null,
   saving: 0,
   pendingWrite: null,
@@ -74,6 +80,8 @@ const orgScoped = {
   applicationsError: null,
   members: [],
   membersError: null,
+  memberLookupEmail: null,
+  memberLookup: idle<LenderMemberLookupDTO>(),
   importResult: null,
   collateral: {},
 };
@@ -183,6 +191,19 @@ export const lenderReducer = createReducer(
   on(A.loadMembers, (s) => ({ ...s, membersLoading: true, membersError: null })),
   on(A.membersLoaded, (s, { members }) => ({ ...s, members, membersLoading: false })),
   on(A.membersFailed, (s, { error }) => ({ ...s, membersLoading: false, membersError: error })),
+  // A lookup answers only the email it was sent for; a newer one replaces it.
+  on(A.lookUpMember, (s, { email }) => ({
+    ...s,
+    memberLookupEmail: email,
+    memberLookup: pending(idle<LenderMemberLookupDTO>()),
+  })),
+  on(A.memberFound, (s, { email, result }) =>
+    email === s.memberLookupEmail ? { ...s, memberLookup: done(result) } : s,
+  ),
+  on(A.memberLookupFailed, (s, { email, error }) =>
+    email === s.memberLookupEmail ? { ...s, memberLookup: failed(s.memberLookup, error) } : s,
+  ),
+  on(A.clearMemberLookup, (s) => ({ ...s, memberLookupEmail: null, memberLookup: idle() })),
   on(A.addMember, A.removeMember, started('member')),
   on(A.membersChanged, settled),
   on(A.importApplications, (s) => ({ ...started('import')(s), importResult: null })),

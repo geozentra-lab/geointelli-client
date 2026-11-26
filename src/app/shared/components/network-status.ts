@@ -12,15 +12,19 @@ import { fromEvent, map, merge, startWith, distinctUntilChanged } from 'rxjs';
   styles: `
     .offline-banner {
       display: flex;
-      gap: 8px;
-      justify-content: center;
+      gap: var(--sp-8);
       flex-wrap: wrap;
-      padding: 12px 20px;
-      background: var(--warning-bg);
-      color: #5e4514;
-      border-bottom: 1px solid var(--warning-line);
-      font-size: 13px;
-      line-height: 1.5;
+      padding: 8px var(--gutter);
+      background: var(--surface);
+      color: var(--ink);
+      border-bottom: 1px solid var(--rule);
+      box-shadow: inset 0 -2px 0 var(--attention);
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+    }
+    strong {
+      color: var(--attention);
+      font-weight: 600;
     }
   `,
 })

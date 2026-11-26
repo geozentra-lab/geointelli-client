@@ -32,6 +32,10 @@ export interface PropertyValuePrediction {
   forecast3y?: number | null;
   forecast3yLow?: number | null;
   forecast3yHigh?: number | null;
+  forecast5y?: number | null;
+  forecast5yLow?: number | null;
+  forecast5yHigh?: number | null;
+  /** The 7-year forecast the 5-year one replaced: only on rows scored before the change. */
   forecast7y?: number | null;
   forecast7yLow?: number | null;
   forecast7yHigh?: number | null;

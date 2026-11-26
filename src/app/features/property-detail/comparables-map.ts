@@ -11,7 +11,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
+import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import L from 'leaflet';
 import { Store } from '@ngrx/store';
@@ -23,6 +23,10 @@ import {
 import { selectPropertyInsights } from '../../store/property-insights/property-insights.selectors';
 import { RequestStatus } from '../../shared/components/request-status';
 import { LoadingSpinner } from '../../shared/components/loading-spinner';
+import { RECORD_KIT } from '../../shared/components/record';
+import { TABLE_KIT } from '../../shared/table';
+import { formatRecordDate } from '../../shared/data/format';
+import { loadLeafletCss } from '../../shared/data/leaflet-css';
 import {
   LatLng,
   Placement,
@@ -37,260 +41,335 @@ const TOP_MATCHES = 3;
 export type ComparablesMapSubject = MapSubject;
 
 /**
- * Comparable sales on a map: the current home highlighted, each comparable as a price pill whose
- * popup shows the facts that drove the match. The list below carries the same information for
- * anyone not using the map, and stays in sync with it (hover or select either side).
+ * Comparable sales: a ranked table beside a sticky map (DESIGN.md §5, Comparables tab). The home is
+ * the copper "Subject" marker, each comparable a price pill whose popup shows the facts that drove
+ * the match. The table carries the same information for anyone not using the map and stays in
+ * sync with it (hover, arrow keys or a click on either side). On phones a List / Map toggle picks
+ * one; the map is only created, and its tiles only load, once it is shown.
  */
 @Component({
   selector: 'gz-comparables-map',
-  imports: [RequestStatus, LoadingSpinner, RouterLink, CurrencyPipe, DatePipe, DecimalPipe],
+  imports: [
+    RequestStatus,
+    LoadingSpinner,
+    RouterLink,
+    CurrencyPipe,
+    DecimalPipe,
+    ...RECORD_KIT,
+    ...TABLE_KIT,
+  ],
   template: `
-    <div class="panel">
-      <div class="panelhead">
-        <h3>Comparable homes</h3>
-        @if (response(); as r) {
-          <span class="smalltext muted"
-            >{{ r.returnedCount }} recent sales within
-            {{ (r.search.radiusMeters ?? 0) / 1609.344 | number: '1.0-1' }} mi ·
-            {{ r.search.months }} months</span
-          >
+    <gz-record-section heading="Comparable sales">
+      <div class="cm-head">
+        <p class="cm-lede">
+          @if (response(); as r) {
+            {{ r.returnedCount }} recent {{ r.returnedCount === 1 ? 'sale' : 'sales' }}
+            @if (r.search.radiusMeters) {
+              within {{ r.search.radiusMeters / 1609.344 | number: '1.0-1' }} mi
+            }
+            @if (r.search.months) {
+              in the last {{ r.search.months }} months,
+            }
+            ranked by similarity to this home.
+          } @else {
+            Recent sales of similar homes nearby, ranked by similarity.
+          }
+        </p>
+        <a class="cm-compare" [routerLink]="['/compare', propertyId()]">Open in Compare</a>
+        @if (comps().length && !loading() && !error()) {
+          <div class="toggle cm-view" role="group" aria-label="Show">
+            <button
+              type="button"
+              [class.active]="phoneView() === 'list'"
+              [attr.aria-pressed]="phoneView() === 'list'"
+              (click)="phoneView.set('list')"
+            >
+              List
+            </button>
+            <button
+              type="button"
+              [class.active]="phoneView() === 'map'"
+              [attr.aria-pressed]="phoneView() === 'map'"
+              (click)="phoneView.set('map')"
+            >
+              Map
+            </button>
+          </div>
         }
       </div>
       <gz-request-status [error]="error()" retryLabel="Retry comparables" (retry)="reload()" />
       @if (loading()) {
         <gz-loading-spinner label="Finding comparable sales" />
       } @else if (!error() && response() && !comps().length) {
-        <div class="empty-state spacer">
-          <p>
-            No comparable sales were found near this home in the last
-            {{ response()!.search.months }} months.
-          </p>
-        </div>
+        <p class="cm-empty">
+          No comparable sales were found near this home in the last
+          {{ response()!.search.months }} months.
+        </p>
       }
-      <div class="mapwrap" [hidden]="loading() || !!error() || !comps().length">
-        <div class="map" #mapEl aria-hidden="true"></div>
-        @if (placing()) {
-          <div class="placing">
-            <gz-loading-spinner [compact]="true" label="Placing homes on the map" />
+      <div class="cm-grid" [class.show-map]="phoneView() === 'map'" [hidden]="loading() || !!error() || !comps().length">
+        <div class="cm-list">
+          @if (comps().length) {
+            <table
+              gz-table
+              sticky="none"
+              class="complist"
+              [selected]="active()"
+              (selectedChange)="highlight($any($event))"
+              (activated)="selectRow($event)"
+            >
+              <caption class="sr-only">
+                Comparable sales, most similar first. Choose a row to show it on the map.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" class="num">Rank</th>
+                  <th scope="col">Address</th>
+                  <th scope="col" class="num" data-priority="2">Sold</th>
+                  <th scope="col" class="num">Price</th>
+                  <th scope="col" class="num" data-priority="3">Match</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (c of comps(); track c.candidate.propertyId) {
+                  <tr
+                    [gz-row]="c.candidate.propertyId"
+                    [attr.aria-label]="rowLabel(c)"
+                    (mouseenter)="highlight(c.candidate.propertyId)"
+                    (mouseleave)="highlight(null)"
+                  >
+                    <td class="num">{{ c.rank }}</td>
+                    <td>
+                      <a [routerLink]="['/property', c.candidate.propertyId]">{{
+                        c.candidate.address || 'Folio ' + c.candidate.folio
+                      }}</a>
+                      <span class="cell-sub"
+                        >{{ facts(c) }} · {{ miles(c.candidate.distanceMeters) }}
+                        @if (!placed()[c.candidate.propertyId] && !placing()) {
+                          · not on map
+                        }
+                      </span>
+                    </td>
+                    <td class="num nowrap" data-priority="2">{{ month(c.candidate.saleDate) }}</td>
+                    <td class="num nowrap">
+                      {{ c.candidate.salePrice | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    </td>
+                    <td class="num" data-priority="3">{{ score(c) }}%</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+          @if (unplaced() > 0 && !placing()) {
+            <p class="table-note" role="status">
+              {{ unplaced() }} {{ unplaced() === 1 ? 'comparable' : 'comparables' }} could not be
+              placed on the map; {{ unplaced() === 1 ? 'it is' : 'they are' }} still listed here.
+            </p>
+          }
+          @if (!subjectPlaced() && !placing() && comps().length) {
+            <p class="table-note">
+              This home's parcel boundary is not on record, so it isn't marked on the map.
+            </p>
+          }
+        </div>
+        <div class="mapwrap">
+          <div class="map" #mapEl role="region" aria-label="Map of comparable sales"></div>
+          @if (placing()) {
+            <div class="placing">
+              <gz-loading-spinner [compact]="true" label="Placing homes on the map" />
+            </div>
+          }
+          <div class="legend" aria-hidden="true">
+            <span><i class="key subject"></i>Subject</span>
+            <span><i class="key pill"></i>Comparable sale</span>
           </div>
-        }
-        <div class="legend" aria-hidden="true">
-          <span><i class="dot subject"></i>This home</span>
-          <span><i class="dot top"></i>Top match</span>
-          <span><i class="dot other"></i>Comparable</span>
         </div>
       </div>
-      @if (unplaced() > 0 && !placing()) {
-        <p class="smalltext muted note" role="status">
-          {{ unplaced() }} {{ unplaced() === 1 ? 'comparable' : 'comparables' }} could not be placed
-          on the map; {{ unplaced() === 1 ? 'it is' : 'they are' }} still listed below.
-        </p>
-      }
-      @if (!subjectPlaced() && !placing() && comps().length) {
-        <p class="smalltext muted note">
-          This home's parcel boundary is not on record, so it isn't marked.
-        </p>
-      }
-      @if (comps().length) {
-        <ol class="complist" aria-label="Comparable sales">
-          @for (c of comps(); track c.candidate.propertyId) {
-            <li
-              [class.active]="active() === c.candidate.propertyId"
-              (mouseenter)="highlight(c.candidate.propertyId)"
-              (mouseleave)="highlight(null)"
-            >
-              <button
-                type="button"
-                class="row"
-                (click)="select(c.candidate.propertyId)"
-                [attr.aria-label]="rowLabel(c)"
-              >
-                <span class="rank" [class.top]="c.rank <= topMatches">{{ c.rank }}</span>
-                <span class="addr">
-                  <b>{{ c.candidate.address || 'Folio ' + c.candidate.folio }}</b>
-                  <small
-                    >{{ facts(c) }} · {{ miles(c.candidate.distanceMeters) }}
-                    @if (!placed()[c.candidate.propertyId] && !placing()) {
-                      · not on map
-                    }
-                  </small>
-                </span>
-                <span class="price">
-                  <b>{{ c.candidate.salePrice | currency: 'USD' : 'symbol' : '1.0-0' }}</b>
-                  <small>{{ c.candidate.saleDate | date: 'MMM y' }} · {{ score(c) }}% match</small>
-                </span>
-              </button>
-              <a class="smalltext" [routerLink]="['/property', c.candidate.propertyId]"
-                >Full record</a
-              >
-            </li>
-          }
-        </ol>
-      }
-    </div>
+    </gz-record-section>
   `,
   styles: `
+    :host {
+      display: block;
+      min-width: 0;
+    }
+    .cm-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-8) var(--sp-16);
+      margin-bottom: var(--sp-12);
+    }
+    .cm-lede {
+      margin: 0;
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+      max-width: var(--measure);
+    }
+    .cm-compare {
+      margin-left: auto;
+      font-size: var(--fs-cell);
+      font-weight: 500;
+    }
+    /* List and Map only choose a view on phones; wider screens show both. */
+    .cm-view {
+      display: none;
+    }
+    .cm-empty {
+      margin: 0;
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+    }
+    .cm-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      gap: var(--sp-24);
+      align-items: start;
+    }
+    .cm-grid[hidden] {
+      display: none;
+    }
+    .cm-list {
+      min-width: 0;
+    }
+    .complist a {
+      font-weight: 500;
+    }
+    /* The map slot: no card around it, sticky beside the table. */
     .mapwrap {
-      position: relative;
-      margin-top: 12px;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid var(--line);
+      position: sticky;
+      top: calc(var(--topbar-h) + 44px + var(--sp-24));
+      border: 1px solid var(--rule-strong);
     }
     .map {
-      height: 460px;
-      background: #f5f6f7;
-    }
-    @media (max-width: 650px) {
-      .map {
-        height: 340px;
-      }
+      height: 480px;
+      background: var(--paper);
     }
     .placing {
       position: absolute;
-      top: 10px;
+      top: var(--sp-8);
       left: 50%;
       transform: translateX(-50%);
       z-index: 500;
-      background: white;
       padding: 4px 12px;
-      border-radius: 20px;
-      box-shadow: 0 2px 10px #17273526;
+      background: var(--surface);
+      border: 1px solid var(--rule-strong);
     }
     .legend {
       position: absolute;
-      left: 10px;
-      bottom: 10px;
+      left: var(--sp-8);
+      bottom: var(--sp-8);
       z-index: 500;
       display: flex;
-      gap: 12px;
       flex-wrap: wrap;
+      gap: 4px 12px;
       padding: 6px 10px;
-      background: #ffffffe8;
-      border-radius: 8px;
-      font-size: 12px;
+      background: var(--surface);
+      border: 1px solid var(--rule-strong);
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
       color: var(--ink);
-      box-shadow: 0 1px 6px #17273520;
     }
     .legend span {
       display: inline-flex;
       align-items: center;
       gap: 6px;
     }
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
+    .key {
       display: inline-block;
     }
-    .dot.subject {
-      background: #172735;
-      box-shadow: 0 0 0 2px #ad724c;
+    .key.subject {
+      width: 10px;
+      height: 10px;
+      border-radius: var(--radius-round);
+      background: var(--copper);
+      box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--copper);
     }
-    .dot.top {
-      background: #ad724c;
+    .key.pill {
+      width: 18px;
+      height: 10px;
+      border-radius: 5px;
+      background: var(--surface);
+      border: 1px solid var(--ink);
     }
-    .dot.other {
-      background: #526773;
-    }
-    .note {
-      margin: 10px 0 0;
-    }
-    .complist {
-      list-style: none;
-      margin: 14px 0 0;
-      padding: 0;
-    }
-    .complist li {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      border-top: 1px solid var(--line);
-      padding-right: 6px;
-    }
-    .complist li.active {
-      background: #faf7f4;
-    }
-    .row {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 6px;
-      background: transparent;
-      border: 0;
-      text-align: left;
-      cursor: pointer;
-      color: inherit;
-    }
-    .rank {
-      width: 26px;
-      height: 26px;
-      flex-shrink: 0;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      font-weight: 700;
-      color: white;
-      background: #526773;
-    }
-    .rank.top {
-      background: #ad724c;
-    }
-    .addr,
-    .price {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-    .addr {
-      flex: 1;
-    }
-    .addr b {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 600;
-    }
-    .price {
-      text-align: right;
-      flex-shrink: 0;
-    }
-    small {
-      color: var(--muted);
-      font-size: 12px;
-    }
-    @media (max-width: 650px) {
-      .price small {
-        display: none;
+    @media (max-width: 1023px) {
+      .cm-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .mapwrap {
+        position: relative;
+        top: auto;
+        order: -1;
+      }
+      .map {
+        height: 400px;
       }
     }
-    /* Leaflet adds marker and popup markup outside Angular's view, so these selectors are global. */
+    @media (max-width: 700px) {
+      .cm-view {
+        display: inline-flex;
+      }
+      .cm-grid:not(.show-map) .mapwrap,
+      .cm-grid.show-map .cm-list {
+        display: none;
+      }
+      .map {
+        height: 60dvh;
+        min-height: 320px;
+      }
+    }
+
+    /* Leaflet adds marker, tile and popup markup outside Angular's view, so these are global.
+       DESIGN.md §10: greyscale street tiles, white price pills with an ink border, the selected
+       pill filled ink, the subject a copper marker labelled "Subject" over a copper parcel. */
+    :host ::ng-deep .leaflet-tile-pane {
+      filter: grayscale(1) contrast(0.9) brightness(1.05);
+    }
+    :host ::ng-deep .leaflet-control-attribution {
+      font-size: var(--fs-caption);
+    }
+    /* Zoom: 32 px white squares with a control border, top right. */
+    :host ::ng-deep .leaflet-top.leaflet-left {
+      left: auto;
+      right: 0;
+    }
+    :host ::ng-deep .leaflet-control-zoom {
+      margin: var(--sp-8) var(--sp-8) 0 0;
+      border: 0;
+      box-shadow: none;
+    }
+    :host ::ng-deep .leaflet-control-zoom a {
+      width: 32px;
+      height: 32px;
+      line-height: 30px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--control);
+      border-radius: var(--radius-control);
+    }
+    :host ::ng-deep .leaflet-control-zoom a + a {
+      margin-top: 4px;
+    }
     :host ::ng-deep .gz-pill {
       display: inline-block;
       transform: translate(-50%, -50%);
-      padding: 3px 8px;
-      border-radius: 14px;
-      background: #526773;
-      color: white;
-      font:
-        700 12px/1.3 'DM Sans',
-        system-ui,
-        sans-serif;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--ink);
+      font: 500 12px/16px var(--font);
+      font-variant-numeric: tabular-nums lining-nums;
       white-space: nowrap;
-      border: 2px solid white;
-      box-shadow: 0 2px 6px #17273559;
       cursor: pointer;
-      transition: transform 0.12s ease;
-    }
-    :host ::ng-deep .gz-pill.top {
-      background: #ad724c;
+      transition:
+        background-color var(--dur-color) ease,
+        color var(--dur-color) ease;
     }
     :host ::ng-deep .gz-pill.active {
-      background: #172735;
-      transform: translate(-50%, -50%) scale(1.15);
+      background: var(--ink);
+      color: var(--surface);
+      position: relative;
       z-index: 1000;
     }
     :host ::ng-deep .gz-subject {
@@ -300,42 +379,44 @@ export type ComparablesMapSubject = MapSubject;
       align-items: center;
     }
     :host ::ng-deep .gz-subject b {
-      padding: 3px 9px;
-      border-radius: 14px;
-      background: #172735;
-      color: white;
-      font:
-        700 12px/1.3 'DM Sans',
-        system-ui,
-        sans-serif;
+      padding: 2px 8px;
+      background: var(--copper);
+      color: var(--surface);
+      border: 1px solid var(--surface);
+      font: 600 12px/16px var(--font);
       white-space: nowrap;
-      box-shadow:
-        0 0 0 2px #ad724c,
-        0 3px 8px #17273566;
     }
     :host ::ng-deep .gz-subject i {
       width: 2px;
       height: 10px;
-      background: #172735;
+      background: var(--copper);
+    }
+    :host ::ng-deep .gz-subject-parcel {
+      stroke: var(--copper);
+      fill: var(--copper);
+    }
+    :host ::ng-deep .leaflet-popup-content-wrapper {
+      border-radius: 0;
+      border: 1px solid var(--rule-strong);
+      box-shadow: var(--shadow-menu);
     }
     :host ::ng-deep .gz-comp-popup {
-      font:
-        13px/1.45 'DM Sans',
-        system-ui,
-        sans-serif;
+      font: 13px/18px var(--font);
       color: var(--ink);
       min-width: 210px;
+      font-variant-numeric: tabular-nums lining-nums;
     }
     :host ::ng-deep .gz-comp-popup h4 {
       margin: 0 0 2px;
-      font-size: 14px;
+      font-size: var(--fs-body);
+      font-weight: 600;
     }
     :host ::ng-deep .gz-comp-popup .pp {
-      font-size: 17px;
-      font-weight: 700;
+      font-size: var(--fs-section);
+      font-weight: 600;
     }
     :host ::ng-deep .gz-comp-popup .muted {
-      color: var(--muted);
+      color: var(--ink-2);
     }
     :host ::ng-deep .gz-comp-popup ul {
       margin: 6px 0;
@@ -343,13 +424,8 @@ export type ComparablesMapSubject = MapSubject;
       color: var(--ink-2);
     }
     :host ::ng-deep .gz-comp-popup a {
-      color: #ad724c;
-      font-weight: 600;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      :host ::ng-deep .gz-pill {
-        transition: none;
-      }
+      color: var(--copper);
+      font-weight: 500;
     }
   `,
 })
@@ -361,7 +437,6 @@ export class ComparablesMap {
   propertyId = input.required<number>();
   subject = input<ComparablesMapSubject | null>(null);
 
-  readonly topMatches = TOP_MATCHES;
   private readonly insights = this.store.selectSignal(selectPropertyInsights);
   /** The store's map state, only while it belongs to this property. */
   private readonly mine = computed(() =>
@@ -376,6 +451,8 @@ export class ComparablesMap {
   readonly placing = computed(() => (this.mine()?.placing ?? 0) > 0);
   /** The pin or row the user is pointing at; a view concern, so it stays in the component. */
   readonly active = signal<number | null>(null);
+  /** Phones show the list or the map; the map (and its tiles) starts only when Map is chosen. */
+  readonly phoneView = signal<'list' | 'map'>('list');
 
   readonly comps = computed(() => this.response()?.comparables ?? []);
   readonly subjectPlaced = computed(() => this.subjectPlacement() !== null);
@@ -392,6 +469,8 @@ export class ComparablesMap {
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   constructor() {
+    // Leaflet's stylesheet is not global; it loads with the first map (shared/data/leaflet-css.ts).
+    loadLeafletCss();
     // Reload only when the home really changes, not when an equal subject object is passed again.
     const loadKey = computed(() => {
       const s = this.subject();
@@ -475,13 +554,14 @@ export class ComparablesMap {
     const points: LatLng[] = [];
     if (subject) {
       L.geoJSON(subject.geom as unknown as GeoJSON.GeoJsonObject, {
-        style: { color: '#ad724c', weight: 2, fillColor: '#ad724c', fillOpacity: 0.15 },
+        // Colour comes from CSS (.gz-subject-parcel): SVG attributes can't read the tokens.
+        style: { className: 'gz-subject-parcel', weight: 2, fillOpacity: 0.12 },
         interactive: false,
       }).addTo(layer);
       L.marker(subject.point, {
         icon: L.divIcon({
           className: '',
-          html: '<div class="gz-subject" title="This home"><b>This home</b><i></i></div>',
+          html: '<div class="gz-subject" title="This home"><b>Subject</b><i></i></div>',
           iconSize: [0, 0],
         }),
         zIndexOffset: 1000,
@@ -494,7 +574,7 @@ export class ComparablesMap {
       if (!p) continue;
       const id = c.candidate.propertyId;
       const pill = document.createElement('div');
-      pill.className = 'gz-pill' + (c.rank <= TOP_MATCHES ? ' top' : '');
+      pill.className = 'gz-pill';
       pill.textContent = compactPrice(c.candidate.salePrice);
       pill.title = this.rowLabel(c);
       const marker = L.marker(p.point, {
@@ -576,11 +656,19 @@ export class ComparablesMap {
   highlight(id: number | null) {
     this.active.set(id);
   }
+  /** Enter or a click on a table row: show that sale on the map. */
+  selectRow(id: unknown) {
+    if (typeof id === 'number') this.select(id);
+  }
+  month(value: string | null | undefined) {
+    return formatRecordDate(value);
+  }
   /** List row → open the matching pin's popup and bring it into view. */
   select(id: number) {
     this.active.set(id);
     const marker = this.markers.get(id);
-    if (!marker || !this.map) return;
+    // On phones with List chosen the map is hidden (0 x 0) and can't be moved; the row stays selected.
+    if (!marker || !this.map || !this.mapEl().nativeElement.clientWidth) return;
     const target = marker.getLatLng();
     if (this.reduceMotion) this.map.setView(target, Math.max(this.map.getZoom(), 15));
     else this.map.flyTo(target, Math.max(this.map.getZoom(), 15), { duration: 0.5 });

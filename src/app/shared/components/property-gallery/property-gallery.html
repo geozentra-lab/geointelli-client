@@ -81,7 +81,8 @@
     </div>
   }
   @if (!loading() && !error() && active(); as photo) {
-    @if (photo.contributor || photo.license || photo.source || photo.capturedAt) {
+    <!-- A credit only under a photo that is shown. -->
+    @if (photo.storagePath && !failed().has(photo.id) && (photo.contributor || photo.license || photo.source || photo.capturedAt)) {
       <p class="photo-credit">
         {{ photo.contributor || photo.source }}
         @if (photo.license) {

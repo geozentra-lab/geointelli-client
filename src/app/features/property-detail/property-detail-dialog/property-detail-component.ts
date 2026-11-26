@@ -5,9 +5,9 @@ import { COMPARE_MIN } from '../../../store/property-compare/property-compare.re
 import { LoadingSpinner } from '../../../shared/components/loading-spinner';
 import { EstimatePoint, SaleHistory } from '../../../shared/components/sale-history/sale-history';
 import { Component, Inject, OnInit, OnDestroy, computed, inject } from '@angular/core';
-import { CurrencyPipe, DecimalPipe, DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { MAT_DIALOG_DATA, MatDialogModule } from '@angular/material/dialog';
+import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
+import { holdShellForDialog } from '../../../shared/layout/shell-layer';
 import { Store } from '@ngrx/store';
 import { PropertiesActions } from '../../../store/properties/properties.actions';
 import { selectProperties } from '../../../store/properties/properties.selectors';
@@ -17,14 +17,18 @@ import { PropertyImagesActions } from '../../../store/property-images/property-i
 import { selectPropertyImages } from '../../../store/property-images/property-images.selectors';
 import { PropertyGallery } from '../../../shared/components/property-gallery/property-gallery';
 import { Icon } from '../../../shared/components/icon/icon';
-import { CONFIDENCE } from '../../../shared/components/value-forecast';
+import { ZentraValue } from '../../../shared/components/zentra-value';
 import { amount, valuationShowsEstimate } from '../../../core/models/property-valuation';
-import { placeLine } from '../../../shared/data/format';
+import { formatFolio, placeLine } from '../../../shared/data/format';
+import { PropertyFacts } from '../property-facts';
+import { PropertyAssessments } from '../property-assessments';
 
 /**
- * Quick look at a parcel from the map. The value shown is the same canonical valuation as the
- * property page (GET /properties/id/{id}/valuation), so a home never shows two different
- * ZentraValues depending on where it was opened.
+ * Quick look at a parcel from the live map (DESIGN.md §5, Live map): a Material dialog restyled to
+ * the tokens, with the shared ZentraValue block beside the county record. The value is the same
+ * canonical valuation as the property page (GET /properties/id/{id}/valuation), so a home never
+ * shows two different ZentraValues depending on where it was opened. On phones it is full screen
+ * with the ZentraValue first.
  */
 @Component({
   imports: [
@@ -33,12 +37,12 @@ import { placeLine } from '../../../shared/data/format';
     LoadingSpinner,
     SaleHistory,
     MatDialogModule,
-    CurrencyPipe,
-    DecimalPipe,
-    DatePipe,
     RouterLink,
     PropertyGallery,
     Icon,
+    ZentraValue,
+    PropertyFacts,
+    PropertyAssessments,
   ],
   templateUrl: './property-detail-component.html',
   styleUrls: ['./property-detail-component.css'],
@@ -47,6 +51,11 @@ export class PropertyDetailComponent implements OnInit, OnDestroy {
   private store = inject(Store);
   state = this.store.selectSignal(selectProperties);
   photos = this.store.selectSignal(selectPropertyImages);
+  /** Photos take room only when there are some, or while they load or fail (with a retry). */
+  showGallery = computed(() => {
+    const s = this.photos();
+    return s.loading || !!s.error || s.images.length > 0;
+  });
   /** The comparison tray is hidden behind the dialog, so the dialog offers the comparison itself. */
   compareSelection = this.store.selectSignal(selectCompareSelection);
   readonly compareMin = COMPARE_MIN;
@@ -58,51 +67,31 @@ export class PropertyDetailComponent implements OnInit, OnDestroy {
       ? s
       : { valuation: null, loading: true, error: null, notFound: false };
   });
-  showsEstimate = computed(() => valuationShowsEstimate(this.valuation().valuation));
-  estimate = computed(() => amount(this.valuation().valuation?.estimate?.value));
-  /** The 80% range, with the estimate's position along it for the marker. */
-  range = computed(() => {
-    const r = this.valuation().valuation?.estimate?.range80;
-    const low = amount(r?.low),
-      high = amount(r?.high),
-      value = this.estimate();
-    if (low === null || high === null || high <= low) return null;
-    const at =
-      value === null ? null : Math.min(100, Math.max(0, ((value - low) / (high - low)) * 100));
-    return { low, high, at };
-  });
-  confidence = computed(
-    () =>
-      CONFIDENCE[(this.valuation().valuation?.estimate?.confidence ?? '').toLowerCase()]?.label ??
-      'Not stated',
-  );
-  oneYear = computed(() => {
-    const value = amount(this.valuation().valuation?.forecasts?.oneYear?.value);
-    const now = this.estimate();
-    if (value === null) return null;
-    return { value, change: now ? ((value - now) / now) * 100 : null };
-  });
-  reasons = computed(() => this.valuation().valuation?.reasons ?? []);
-  lastSale = computed(() => {
-    const s = this.valuation().valuation?.evidence?.lastSale;
-    const price = amount(s?.price);
-    return s?.hasSaleHistory && price !== null ? { price, date: s.date ?? null } : null;
-  });
   /** The estimate point for the sale-history chart, when the model produced one. */
   saleEstimate = computed<EstimatePoint | null>(() => {
-    const value = this.estimate();
-    if (!this.showsEstimate() || value === null) return null;
-    return {
-      predictedPrice: value,
-      predictionDate: this.valuation().valuation?.method?.predictionDate ?? '',
-    };
+    const v = this.valuation().valuation;
+    const value = amount(v?.estimate?.value);
+    if (!valuationShowsEstimate(v) || value === null) return null;
+    return { predictedPrice: value, predictionDate: v?.method?.predictionDate ?? '' };
   });
-  location = computed(() =>
-    placeLine(this.state().detail?.countyName, this.state().detail?.stateCode),
+  /** The address, or the folio while the record loads or when it has no address. */
+  title = computed(
+    () => this.state().detail?.address?.address?.trim() || 'Folio ' + formatFolio(this.data.folio),
   );
+  /** "Miami, FL 33133 · Folio 01-4137-012-0450 · Single family": the parts that are known. */
+  factsLine = computed(() => {
+    const p = this.state().detail;
+    const place = placeLine(p?.address?.city || p?.countyName, p?.stateCode, p?.address?.zip);
+    return [place, 'Folio ' + formatFolio(this.data.folio), p?.dorDescription ?? '']
+      .map((s) => s.trim())
+      .filter(Boolean);
+  });
   constructor(
     @Inject(MAT_DIALOG_DATA) public data: { folio: string; propertyId: number; countyId: number },
-  ) {}
+  ) {
+    // The shell stays inert and dimmed behind the dialog (DESIGN.md §14, bug 2).
+    holdShellForDialog(inject(MatDialogRef, { optional: true }) ?? undefined);
+  }
   ngOnInit() {
     this.load();
     this.loadImages();

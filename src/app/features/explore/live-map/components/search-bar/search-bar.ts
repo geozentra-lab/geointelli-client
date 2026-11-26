@@ -86,7 +86,13 @@ let nextId = 0;
         [placeholder]="mode() === 'folio' ? 'Enter folio number…' : 'Start typing an address…'"
         (keydown)="onKeydown($event)"
         (blur)="close()"
-      /><button class="btn primary" type="button" [disabled]="!canSubmit()" (click)="submit()">
+      /><button
+        class="btn primary"
+        type="button"
+        [disabled]="!canSubmit()"
+        [attr.aria-describedby]="submitHint() ? listId + '-hint' : null"
+        (click)="submit()"
+      >
         Search
       </button>
       @if (open()) {
@@ -140,7 +146,18 @@ let nextId = 0;
           }
         </div>
       }
-    </div>`,
+    </div>
+    @if (submitHint(); as hint) {
+      <p class="search-hint" [id]="listId + '-hint'">{{ hint }}</p>
+    }`,
+  styles: `
+    .search-hint {
+      margin: 6px 0 0;
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      color: var(--ink-2);
+    }
+  `,
 })
 export class SearchBar implements OnInit {
   search = output<SearchQuery>();
@@ -210,6 +227,14 @@ export class SearchBar implements OnInit {
       this.store.dispatch(L.loadCountiesFor({ stateId }));
     else this.store.dispatch(L.loadStates());
   }
+  /** Why Search is disabled, written under it (DESIGN.md §12); empty when it can run. */
+  readonly submitHint = computed(() => {
+    if (this.mode() === 'folio' && !(this.countyId() !== null && this.countyId()! > 0))
+      return 'Choose a state and county to search by folio.';
+    if (!this.value().trim())
+      return this.mode() === 'folio' ? 'Enter a folio number to search.' : 'Enter an address to search.';
+    return '';
+  });
   canSubmit() {
     return (
       !!this.value().trim() &&

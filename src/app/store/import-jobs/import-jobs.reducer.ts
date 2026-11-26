@@ -29,6 +29,10 @@ export const importJobsReducer = createReducer(
     error: null,
   })),
   on(A.failed, (s, { error }) => ({ ...s, error, loading: false })),
+  // A silent refresh replaces any request still in flight (switchMap). When it fails, the table
+  // stays as it was; but a visible load it cancelled (loading is only set by a visible load) would
+  // otherwise wait for ever, so that wait ends with the error.
+  on(A.refreshFailed, (s, { error }) => (s.loading ? { ...s, error, loading: false } : s)),
   on(A.openJob, (s, { id, silent }) =>
     silent
       ? s
@@ -44,6 +48,9 @@ export const importJobsReducer = createReducer(
     job.id === s.selectedId ? { ...s, job, jobLoading: false, jobError: null } : s,
   ),
   on(A.jobFailed, (s, { error }) => ({ ...s, jobError: error, jobLoading: false })),
+  on(A.jobRefreshFailed, (s, { error }) =>
+    s.jobLoading ? { ...s, jobError: error, jobLoading: false } : s,
+  ),
   on(A.closeJob, (s) => ({ ...s, selectedId: null, job: null, jobError: null, jobLoading: false })),
   on(A.retry, (s, { id }) => ({ ...s, retrying: id, retryError: null })),
   // The new attempt replaces the old one in the details panel.

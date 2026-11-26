@@ -36,7 +36,7 @@ export const userReducer = createReducer(
     error,
     loading: false,
   })),
-  on(A.changePersona, A.saveProfile, (s) => ({ ...s, savingProfile: true, profileError: null })),
+  on(A.saveProfile, (s) => ({ ...s, savingProfile: true, profileError: null })),
   on(A.profileSaved, (s, { profile }) => ({
     ...s,
     profile,

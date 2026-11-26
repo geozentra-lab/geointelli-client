@@ -7,6 +7,10 @@ import { selectPropertyInsights } from '../../store/property-insights/property-i
 import { RequestStatus } from '../../shared/components/request-status';
 import { Pagination } from '../../shared/components/pagination';
 import { Property } from '../../core/models/property';
+import { RECORD_KIT } from '../../shared/components/record';
+import { TABLE_KIT } from '../../shared/table';
+
+const NOT_IN_RECORD = 'Not in the county record';
 
 /**
  * Building & features tab: the county's extra features (pools, patios, fences…) from
@@ -14,11 +18,32 @@ import { Property } from '../../core/models/property';
  */
 @Component({
   selector: 'gz-property-features',
-  imports: [CurrencyPipe, DecimalPipe, RouterLink, RequestStatus, Pagination],
+  imports: [
+    CurrencyPipe,
+    DecimalPipe,
+    RouterLink,
+    RequestStatus,
+    Pagination,
+    ...RECORD_KIT,
+    ...TABLE_KIT,
+  ],
   template: `
-    <div class="panel">
-      <div class="panelhead">
-        <h3>Extra features</h3>
+    <gz-record-section heading="Extra features">
+      <div class="pf-head">
+        <p class="pf-lede">
+          @if (features().value; as f) {
+            @if (f.history) {
+              Every roll year on record
+            } @else if (f.rollYear) {
+              {{ f.rollYear }} roll year
+            } @else {
+              Latest roll year
+            }
+            · {{ f.totalElements }} {{ f.totalElements === 1 ? 'feature' : 'features' }}
+          } @else {
+            Pools, patios, fences and other extras the county assesses.
+          }
+        </p>
         <div class="toggle" role="group" aria-label="Which roll years">
           <button
             type="button"
@@ -39,7 +64,7 @@ import { Property } from '../../core/models/property';
         </div>
       </div>
       <gz-request-status
-        [loading]="features().loading"
+        [loading]="features().loading && !features().value"
         loadingText="Loading extra features…"
         [error]="features().error"
         retryLabel="Retry features"
@@ -47,44 +72,73 @@ import { Property } from '../../core/models/property';
       />
       @if (features().value; as f) {
         @if (f.features.length) {
-          <p class="smalltext muted">
-            @if (f.history) {
-              Every roll year on record
-            } @else if (f.rollYear) {
-              {{ f.rollYear }} roll year
-            }
-            · {{ f.totalElements }} {{ f.totalElements === 1 ? 'feature' : 'features' }}
-          </p>
-          <div class="tablewrap">
-            <table>
+          <div [attr.aria-busy]="features().loading">
+            <table gz-table sticky="none">
+              <caption class="sr-only">
+                Extra features
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">Feature</th>
                   @if (f.history) {
-                    <th scope="col">Roll year</th>
+                    <th scope="col" class="num">Roll year</th>
                   }
-                  <th scope="col">Units</th>
-                  <th scope="col">Built</th>
-                  <th scope="col">Condition</th>
-                  <th scope="col">Depreciated value</th>
+                  <th scope="col" class="num" data-priority="2">Units</th>
+                  <th scope="col" class="num" data-priority="2">Built</th>
+                  <th scope="col" class="num" data-priority="3">Condition</th>
+                  <th scope="col" class="num">Depreciated value</th>
                 </tr>
               </thead>
               <tbody>
                 @for (x of f.features; track $index) {
                   <tr>
-                    <td>{{ x.description || x.useCode || 'Unnamed feature' }}</td>
+                    <td
+                      gz-cell
+                      class="wrap"
+                      [missing]="!(x.description || x.useCode)"
+                      [reason]="notInRecord"
+                    >
+                      {{ x.description || x.useCode }}
+                    </td>
                     @if (f.history) {
-                      <td>{{ x.rollYear ?? '—' }}</td>
+                      <td gz-cell class="num" [missing]="x.rollYear === null" [reason]="notInRecord">
+                        {{ x.rollYear }}
+                      </td>
                     }
-                    <td>{{ x.units === null ? '—' : (x.units | number) }}</td>
-                    <td>{{ x.actualYearBuilt ?? '—' }}</td>
-                    <td>{{ x.percentCondition === null ? '—' : x.percentCondition + '%' }}</td>
-                    <td>
-                      {{
-                        x.depreciatedValue === null
-                          ? 'Not available'
-                          : (x.depreciatedValue | currency: 'USD' : 'symbol' : '1.0-0')
-                      }}
+                    <td
+                      gz-cell
+                      class="num"
+                      data-priority="2"
+                      [missing]="x.units === null"
+                      [reason]="notInRecord"
+                    >
+                      {{ x.units | number }}
+                    </td>
+                    <td
+                      gz-cell
+                      class="num"
+                      data-priority="2"
+                      [missing]="x.actualYearBuilt === null"
+                      [reason]="notInRecord"
+                    >
+                      {{ x.actualYearBuilt }}
+                    </td>
+                    <td
+                      gz-cell
+                      class="num"
+                      data-priority="3"
+                      [missing]="x.percentCondition === null"
+                      [reason]="notInRecord"
+                    >
+                      {{ x.percentCondition }}%
+                    </td>
+                    <td
+                      gz-cell
+                      class="num nowrap"
+                      [missing]="x.depreciatedValue === null"
+                      [reason]="notInRecord"
+                    >
+                      {{ x.depreciatedValue | currency: 'USD' : 'symbol' : '1.0-0' }}
                     </td>
                   </tr>
                 }
@@ -98,51 +152,78 @@ import { Property } from '../../core/models/property';
             [loading]="features().loading"
             (changed)="loadFeatures($event)"
           />
-          <p class="sourcedata">
-            County assessor records. Depreciated value is the assessor's figure for the feature,
-            already part of the assessment; it is not added to the market estimate.
+          <p class="table-note">
+            County assessor records. Unavailable: not in the county record. Depreciated value is
+            the assessor’s figure for the feature, already part of the assessment; it is not added
+            to the market estimate.
           </p>
         } @else {
-          <p class="sub spacer">No extra features are on record for this property.</p>
+          <p class="pf-empty">No extra features are on record for this property.</p>
         }
       }
-    </div>
+    </gz-record-section>
 
     @if (units().value; as u) {
       @if (u.totalElements > 0) {
-        <div class="panel section">
-          <div class="panelhead">
-            <h3>Units in this building</h3>
-            <span class="smalltext muted">{{ u.totalElements | number }} on record</span>
-          </div>
-          <div class="tablewrap">
-            <table>
-              <thead>
+        <gz-record-section heading="Units in this building">
+          <p class="pf-lede pf-gap">{{ u.totalElements | number }} on record.</p>
+          <table gz-table sticky="none">
+            <caption class="sr-only">
+              Units in this building
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Unit</th>
+                <th scope="col" class="num">Beds</th>
+                <th scope="col" class="num" data-priority="2">Baths</th>
+                <th scope="col" class="num" data-priority="2">Living area, sq ft</th>
+                <th scope="col" data-priority="3">Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of u.content; track c.id) {
                 <tr>
-                  <th scope="col">Unit</th>
-                  <th scope="col">Beds</th>
-                  <th scope="col">Baths</th>
-                  <th scope="col">Living area</th>
-                  <th scope="col">Use</th>
+                  <td>
+                    <a [routerLink]="['/property', c.id]">{{ unitLabel(c) }}</a>
+                  </td>
+                  <td
+                    gz-cell
+                    class="num"
+                    [missing]="c.bedroomCount == null"
+                    [reason]="notInRecord"
+                  >
+                    {{ c.bedroomCount }}
+                  </td>
+                  <td
+                    gz-cell
+                    class="num"
+                    data-priority="2"
+                    [missing]="c.bathroomCount == null"
+                    [reason]="notInRecord"
+                  >
+                    {{ c.bathroomCount }}
+                  </td>
+                  <td
+                    gz-cell
+                    class="num"
+                    data-priority="2"
+                    [missing]="!c.buildingActualArea"
+                    [reason]="notInRecord"
+                  >
+                    {{ c.buildingActualArea | number }}
+                  </td>
+                  <td
+                    gz-cell
+                    data-priority="3"
+                    [missing]="!c.dorDescription"
+                    [reason]="notInRecord"
+                  >
+                    {{ c.dorDescription }}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                @for (c of u.content; track c.id) {
-                  <tr>
-                    <td>
-                      <a [routerLink]="['/property', c.id]">{{ unitLabel(c) }}</a>
-                    </td>
-                    <td>{{ c.bedroomCount ?? '—' }}</td>
-                    <td>{{ c.bathroomCount ?? '—' }}</td>
-                    <td>
-                      {{ c.buildingActualArea ? (c.buildingActualArea | number) + ' sqft' : '—' }}
-                    </td>
-                    <td>{{ c.dorDescription || '—' }}</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
+              }
+            </tbody>
+          </table>
           <gz-pagination
             [page]="u.page"
             [pages]="u.totalPages"
@@ -150,7 +231,7 @@ import { Property } from '../../core/models/property';
             [loading]="units().loading"
             (changed)="loadUnits($event)"
           />
-        </div>
+        </gz-record-section>
       }
     }
     <gz-request-status
@@ -159,9 +240,45 @@ import { Property } from '../../core/models/property';
       (retry)="loadUnits(unitsPage())"
     />
   `,
+  styles: `
+    :host {
+      display: grid;
+      gap: var(--sp-24);
+      min-width: 0;
+    }
+    :host > * {
+      min-width: 0;
+    }
+    .pf-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-8) var(--sp-16);
+      margin-bottom: var(--sp-8);
+    }
+    .pf-lede {
+      margin: 0;
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+    }
+    .pf-gap {
+      margin-bottom: var(--sp-8);
+    }
+    .pf-empty {
+      margin: 0;
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+    }
+    td.wrap {
+      white-space: normal;
+    }
+  `,
 })
 export class PropertyFeatures {
   private store = inject(Store);
+  readonly notInRecord = NOT_IN_RECORD;
   propertyId = input.required<number>();
   private insights = this.store.selectSignal(selectPropertyInsights);
   /** The slice's sections, only while they belong to this property. */

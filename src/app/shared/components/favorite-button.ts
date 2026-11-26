@@ -34,80 +34,60 @@ import { Icon } from './icon/icon';
       display: inline-flex;
       flex-shrink: 0;
     }
+    /* The heart is copper, filled once saved (DESIGN.md §2). */
     .favorite-control {
       position: relative;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      min-width: 44px;
-      min-height: 44px;
-      padding: 10px;
-      border: 1px solid #dce3e7;
-      border-radius: 50%;
-      background: #fffffff5;
+      gap: var(--sp-8);
+      min-width: var(--control-h);
+      min-height: var(--control-h);
+      padding: 0 8px;
+      border: 1px solid var(--control);
+      border-radius: var(--radius-control);
+      background: var(--surface);
       color: var(--ink-2);
-      box-shadow: 0 2px 8px #1727350a;
       transition:
-        background 0.15s,
-        transform 0.15s,
-        color 0.15s;
+        background-color var(--dur-color) ease,
+        color var(--dur-color) ease;
     }
     .favorite-control.saved {
-      color: #d73550;
-      background: #fff5f6;
-      border-color: #f2c4ce;
+      color: var(--copper);
+      border-color: var(--copper);
     }
     .favorite-control:hover:not(:disabled) {
-      transform: translateY(-1px);
-      background: #f9ecef;
+      background: var(--copper-tint);
+      color: var(--copper);
     }
     /* With a label it sits among page buttons, so it takes the standard button shape. */
     .favorite-control.with-label {
-      min-width: 0;
-      min-height: var(--control-h);
-      padding: 0 16px;
-      border-color: var(--field-border);
-      border-radius: var(--radius);
-      background: #fff;
+      padding: 0 14px;
       color: var(--ink);
-      box-shadow: none;
-      font-weight: 600;
-      font-size: 13px;
-      line-height: 20px;
+      font-weight: 500;
+      font-size: var(--fs-body);
+      line-height: var(--lh-body);
     }
     .favorite-control.with-label.saved {
-      border-color: #f2c4ce;
-      background: #fff5f6;
-      color: #d73550;
+      background: var(--copper-tint);
+      color: var(--copper-hover);
+    }
+    .favorite-control.with-label gz-icon {
+      color: var(--copper);
     }
     .favorite-control.pending {
       cursor: progress;
       opacity: 1;
     }
+    /* Waiting for the save: a thin bar along the bottom edge, no spinner. */
     .favorite-progress {
       position: absolute;
+      left: 3px;
       right: 3px;
-      bottom: 3px;
-      width: 12px;
-      height: 12px;
-      border: 2px solid #e3d8dc;
-      border-top-color: #d73550;
-      border-radius: 50%;
-      animation: favorite-spin 0.7s linear infinite;
-    }
-    @keyframes favorite-spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .favorite-control {
-        transition: none;
-      }
-      .favorite-progress {
-        animation-duration: 2s;
-      }
+      bottom: 2px;
+      height: 2px;
+      background: var(--copper);
+      opacity: 0.6;
     }
   `,
 })

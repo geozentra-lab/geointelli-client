@@ -1,0 +1,279 @@
+/* Explore (Zillow-like): filters across the top, then the map on the left and the cards on the
+   right. On desktop the page fills the screen and the cards scroll beside a still map. */
+:host {
+  display: block;
+}
+.ex {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--topbar-h));
+}
+.ex-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  padding: 0 var(--gutter);
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.ex-filters {
+  flex: 1;
+  padding: var(--sp-12) 0;
+}
+.ex-filters .search {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+.ex-city {
+  width: 150px;
+}
+.ex-view {
+  display: none;
+}
+.ex-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(480px, 46vw, 860px);
+  flex: 1;
+  min-height: 0;
+}
+/* The map: no card around it, a rule on its right. */
+.ex-slot {
+  position: relative;
+  min-width: 0;
+  /* Leaflet's layers (z-index 400-1000) stay inside the map, under the shell's bars and menus. */
+  isolation: isolate;
+  border-right: 1px solid var(--rule-strong);
+  background: var(--paper);
+}
+.ex-slot > *,
+.ex-slot-empty {
+  height: 100%;
+}
+.ex-list {
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-16) var(--sp-24) 80px;
+}
+.ex-list:focus {
+  outline: none;
+}
+.ex-list {
+  scroll-margin-top: var(--topbar-h);
+}
+.ex-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-8) var(--sp-16);
+  margin-bottom: var(--sp-12);
+}
+h1 {
+  margin: 0;
+  font-size: var(--fs-page);
+  line-height: var(--lh-page);
+  letter-spacing: var(--track-24);
+}
+.ex-count {
+  display: block;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.ex-actions {
+  display: flex;
+  gap: var(--sp-8);
+}
+.ex-save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-8);
+  margin-bottom: var(--sp-16);
+  font-size: var(--fs-body);
+}
+.ex-save label {
+  color: var(--ink-2);
+}
+.ex-save input {
+  flex: 1 1 200px;
+}
+.ex-save-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+.ex-start p {
+  margin: 0 0 var(--sp-12);
+  font-size: var(--fs-body);
+  max-width: var(--measure);
+}
+.ex-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ex-status {
+  margin: 0 0 var(--sp-12);
+  font-size: var(--fs-cell);
+  color: var(--ink-2);
+}
+.ex-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--sp-16);
+}
+.ex-cards.ex-busy > * {
+  opacity: 0.6;
+}
+.ex-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding-bottom: var(--sp-12);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+.ex-skel span {
+  aspect-ratio: 16 / 10;
+  background: var(--skeleton);
+}
+.ex-skel i {
+  height: 14px;
+  margin: 0 12px;
+  background: var(--skeleton);
+}
+.ex-skel i:last-child {
+  width: 50%;
+}
+.ex-empty {
+  grid-column: 1 / -1;
+  padding: var(--sp-16) 0;
+  font-size: var(--fs-body);
+}
+.ex-empty p {
+  margin: 0 0 var(--sp-12);
+}
+.ex-notes {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+.ex-notes p {
+  margin: 0 0 4px;
+  max-width: var(--measure);
+}
+.ex-picked {
+  display: none;
+}
+.ex-picked:focus {
+  outline: none;
+}
+
+/* Tablet and phone: List or Map, one at a time; the map loads when chosen. 1023.98 rather than
+   1023 so a fractional width (browser zoom) can't fall between this and the script's 1024. */
+@media (max-width: 1023.98px) {
+  .ex {
+    display: block;
+    height: auto;
+  }
+  .ex-bar {
+    flex-wrap: wrap;
+    padding-bottom: var(--sp-12);
+  }
+  .ex-filters {
+    flex-basis: 100%;
+    padding-bottom: 0;
+  }
+  .ex-view {
+    display: inline-flex;
+  }
+  .ex-split {
+    display: flex;
+    flex-direction: column;
+  }
+  .ex-list {
+    order: 1;
+    overflow: visible;
+    padding: var(--sp-16) var(--gutter) var(--sp-32);
+  }
+  .ex-picked {
+    order: 2;
+  }
+  .ex-slot {
+    order: 3;
+    height: calc(100dvh - var(--topbar-h) - var(--bottombar-h) - 64px);
+    min-height: 360px;
+    border-right: 0;
+    border-top: 1px solid var(--rule-strong);
+  }
+  .ex:not(.show-map) .ex-slot,
+  .ex.show-map .ex-list > :not(.ex-head, .ex-search-error) {
+    display: none;
+  }
+  /* Map chosen: the map takes the rest of the screen under the switch, the header and the
+     picked property, so its middle and its legend are in view. */
+  .ex.show-map {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--topbar-h) - var(--bottombar-h));
+  }
+  .ex.show-map .ex-split {
+    flex: 1;
+    min-height: 0;
+  }
+  .ex.show-map .ex-slot {
+    flex: 1;
+    height: auto;
+    min-height: 260px;
+  }
+  .ex.show-map .ex-list {
+    padding-bottom: var(--sp-12);
+  }
+  /* The picked property, between the switch and the map, so it shows at once. */
+  .ex.show-map .ex-picked {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--sp-12) var(--gutter);
+    background: var(--surface);
+    border-top: 2px solid var(--ink);
+    font-size: var(--fs-caption);
+    line-height: var(--lh-caption);
+    color: var(--ink-2);
+  }
+  .ex-picked-title {
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    font-weight: 500;
+  }
+}
+@media (max-width: 700px) {
+  /* On a phone the map view keeps the switch and the count; the filters are in the list view. */
+  .ex.show-map .ex-filters,
+  .ex.show-map .ex-actions {
+    display: none;
+  }
+  h1 {
+    font-size: var(--fs-title);
+    line-height: var(--lh-title);
+  }
+  .ex-filters .search {
+    max-width: none;
+  }
+  .ex-city {
+    width: auto;
+  }
+  .ex-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

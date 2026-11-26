@@ -26,9 +26,9 @@ import { Component, input } from '@angular/core';
       display: block;
       width: 32px;
       height: 32px;
-      border: 3px solid #dce4e8;
-      border-top-color: #ad724c;
-      border-radius: 50%;
+      border: 3px solid var(--rule);
+      border-top-color: var(--copper);
+      border-radius: var(--radius-round);
       animation: spin 0.8s linear infinite;
     }
     .compact {

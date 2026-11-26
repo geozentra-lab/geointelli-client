@@ -1,0 +1,235 @@
+/* The property page as a record (DESIGN.md §5): header, sticky tabs, 8 columns of content and a
+   sticky 4-column ZentraValue aside. On phones and narrow tablets: one column, the ZentraValue
+   under the header, then the tabs. */
+:host {
+  display: block;
+  --tabs-h: 44px;
+}
+.pr {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  column-gap: var(--sp-32);
+  align-items: start;
+  max-width: 1200px;
+}
+.pr-head {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+.pr-head h1 {
+  margin: 0;
+  font-size: var(--fs-record);
+  line-height: var(--lh-record);
+  letter-spacing: var(--track-32);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.facts-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: var(--sp-8) 0 0;
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Sticky tabs under the top bar. */
+.pr-tabs {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: var(--z-tabs);
+  margin: var(--sp-24) 0 0;
+  background: var(--paper);
+  border-bottom-color: var(--rule-strong);
+}
+.pr-tabs button {
+  padding: 12px 0 10px;
+}
+
+.pr-main:focus-visible {
+  outline-offset: 4px;
+}
+.pr-main {
+  grid-column: 1;
+  grid-row: 3;
+  display: grid;
+  gap: var(--sp-24);
+  margin-top: var(--sp-24);
+  min-width: 0;
+  outline: none;
+}
+/* Grid children may shrink below their content: the charts inside measure their container, so a
+   child sized by its content would hold the column open at the chart's first width. */
+.pr-main > * {
+  min-width: 0;
+}
+.pr.wide .pr-main {
+  grid-column: 1 / -1;
+}
+
+/* The ZentraValue aside: white under a 2 px ink rule, sticky below the tabs. */
+.pr-aside {
+  grid-column: 2;
+  grid-row: 3;
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--tabs-h) + var(--sp-24));
+  margin-top: var(--sp-24);
+  padding: var(--sp-16) var(--sp-24) var(--sp-24);
+  background: var(--surface);
+  border-top: 2px solid var(--ink);
+  min-width: 0;
+}
+.aside-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  margin-top: var(--sp-24);
+}
+.ask-button {
+  width: 100%;
+  justify-content: center;
+}
+/* On the Comparables tab the same actions sit at the end of the one-line ZentraValue. */
+.zv-oneline .aside-actions {
+  margin: 0 0 0 auto;
+}
+.zv-oneline .ask-button {
+  width: auto;
+}
+.aside-error {
+  margin: 0 0 var(--sp-8);
+  font-size: var(--fs-cell);
+  color: var(--ink);
+}
+/* Loading: solid blocks, no text, no shimmer (§6). */
+.zv-skeleton i {
+  display: block;
+  height: 16px;
+  margin-bottom: var(--sp-12);
+  background: var(--skeleton);
+}
+.zv-skeleton i:nth-of-type(2) {
+  width: 70%;
+  height: 44px;
+}
+.zv-skeleton i:nth-of-type(3) {
+  height: 18px;
+}
+
+/* The Comparables tab: the aside shrinks to one line above the table. */
+.zv-oneline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-8) var(--sp-16);
+  padding: var(--sp-12) var(--sp-24);
+  background: var(--surface);
+  border-top: 2px solid var(--ink);
+  font-size: var(--fs-cell);
+}
+
+/* Record content */
+.pr-meta {
+  margin: 0 0 var(--sp-8);
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+.pr-empty {
+  margin: var(--sp-8) 0 0;
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+.pr-empty + .btn {
+  margin-top: var(--sp-12);
+}
+.fact-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-8) var(--sp-32);
+}
+.score-line {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-cell);
+  color: var(--ink-2);
+}
+.score-line b {
+  font-size: var(--fs-page);
+  line-height: var(--lh-page);
+  font-weight: 600;
+  color: var(--ink);
+}
+/* A score part out of 100: one hue, square at the baseline (§11). Missing parts are hatched by
+   their row's marker, never drawn as 0. */
+.part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+}
+.part-bar {
+  position: relative;
+  width: 88px;
+  height: 6px;
+  background: var(--rule);
+}
+.part-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink-2);
+}
+gz-record-section table {
+  margin-top: var(--sp-8);
+}
+
+@media (max-width: 899px) {
+  .pr {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pr-aside {
+    position: static;
+    margin-top: var(--sp-16);
+  }
+  .pr-tabs {
+    margin-top: var(--sp-16);
+  }
+  .pr-main {
+    margin-top: var(--sp-16);
+  }
+}
+@media (max-width: 700px) {
+  .pr-head h1 {
+    font-size: var(--fs-title);
+    line-height: var(--lh-title);
+    letter-spacing: 0;
+  }
+  .facts-line {
+    gap: 2px 12px;
+    margin-top: var(--sp-4);
+    font-size: var(--fs-cell);
+    line-height: var(--lh-cell);
+  }
+  .pr-aside {
+    padding: var(--sp-12) var(--sp-16) var(--sp-16);
+  }
+  .aside-actions {
+    margin-top: var(--sp-16);
+  }
+  .pr-main {
+    gap: var(--sp-16);
+  }
+  .fact-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .zv-oneline {
+    padding: var(--sp-12) var(--sp-16);
+  }
+}

@@ -1,149 +1,256 @@
+import {
+  Component,
+  ElementRef,
+  Injector,
+  OnInit,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
+import { Title } from '@angular/platform-browser';
+import { NavigationEnd, NavigationStart, Router, RouterLink, RouterOutlet } from '@angular/router';
+import type { Event as RouterEvent } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { filter, map } from 'rxjs';
 import { NotificationMenu } from './shared/components/notification-menu';
 import { NetworkStatus } from './shared/components/network-status';
 import { CompareTray } from './shared/components/compare-tray';
-import { Title } from '@angular/platform-browser';
-import { effect } from '@angular/core';
-import { Component, Injector, afterNextRender, inject, signal, computed } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet, NavigationEnd } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { filter, map } from 'rxjs';
+import { AccountMenu } from './shared/components/account-menu';
+import { ShellSearch } from './shared/components/shell-search';
 import { Icon } from './shared/components/icon/icon';
 import { Workspace } from './shared/data/workspace';
-import { UserActions } from './store/user/user.actions';
-import { Persona } from './store/user/user.model';
+import { ShellLayer } from './shared/layout/shell-layer';
+import { RouteProgress } from './shared/layout/route-progress';
+import { AccessBanner } from './shared/layout/access-banner';
+import { NO_FEATURES } from './store/account/account.selectors';
+import {
+  Here,
+  NAV,
+  NavItem,
+  ShellKind,
+  bottomBar,
+  featureFor,
+  isActive,
+  moreItems,
+  parseUrl,
+  publicLinks,
+  railGroups,
+  shellFor,
+  titleFor,
+} from './shared/data/navigation';
 import { selectCompareSelection } from './store/property-compare/property-compare.selectors';
 
-const NAV_KEY = 'gz.navHidden';
-function readNavHidden() {
+/** Remembers which shell the last signed-in visit used, so the frame doesn't jump while the
+ *  profile loads. A per-browser convenience only; the profile decides. */
+const SHELL_KEY = 'gz.shell';
+function readShellHint(): ShellKind | null {
   try {
-    return localStorage.getItem(NAV_KEY) === '1';
+    const v = localStorage.getItem(SHELL_KEY);
+    return v === 'pro' || v === 'public' ? v : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
+/**
+ * The Desk shell (DESIGN.md §5). Accounts with a professional area or the admin feature
+ * (entitlements, backend SCRUM-204) get the navy rail: the home-buyer pages, then one section per
+ * area; home buyers and guests get a search-first top bar. Phones get a bottom bar
+ * with four items and More. One scrim, at shell level, sits under any open sheet; while a dialog
+ * or sheet is open the rest of the shell is inert.
+ */
 @Component({
   selector: 'app-root',
   imports: [
+    RouterOutlet,
+    RouterLink,
+    Icon,
     NotificationMenu,
     NetworkStatus,
     CompareTray,
-    RouterOutlet,
-    RouterLink,
-    RouterLinkActive,
-    Icon,
+    AccountMenu,
+    ShellSearch,
+    RouteProgress,
+    AccessBanner,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
-  host: {
-    '(document:keydown.escape)': 'mobileOpen.set(false)',
-    '[class.navhidden]': 'navHidden()',
-  },
+  host: { '(document:keydown.escape)': 'escape()' },
 })
-export class App {
+export class App implements OnInit {
+  readonly w = inject(Workspace);
+  readonly layer = inject(ShellLayer);
+  private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
+  private readonly hint = readShellHint();
+  readonly nav = NAV;
+
+  /** Sign-in only changes with a page load or sign-out; reading the account keeps this fresh. */
+  readonly signedIn = computed(() => {
+    this.w.account();
+    return this.w.auth.isLoggedIn();
+  });
+  /** The entitlements' features once read; none for guests. */
+  readonly features = computed(() => (this.signedIn() ? this.w.features() : NO_FEATURES));
+  readonly pending = computed(() => (this.signedIn() ? this.w.pendingRoles() : []));
+  readonly shell = computed<ShellKind>(() => {
+    if (!this.signedIn()) return 'public';
+    const access = this.w.access().entitlements;
+    if (access.value) return shellFor(access.value.features);
+    return access.error ? 'public' : (this.hint ?? 'public');
+  });
+  readonly pro = computed(() => this.shell() === 'pro');
+
+  readonly here = toSignal(
+    this.router.events.pipe(
+      filter((e) => e instanceof NavigationEnd),
+      map((e) => parseUrl((e as NavigationEnd).urlAfterRedirects)),
+    ),
+    { initialValue: parseUrl(this.router.url) },
+  );
+  readonly groups = computed(() => railGroups(this.features(), this.pending()));
+  private readonly railItems = computed(() => this.groups().flatMap((g) => g.items));
+  readonly links = computed(() => publicLinks(this.signedIn(), this.pending()));
+  readonly bottom = computed(() => bottomBar(this.shell(), this.groups()));
+  readonly more = computed(() => moreItems(this.shell(), this.groups(), this.signedIn()));
+  readonly title = computed(() => titleFor(this.here()));
+  /** Map pages (Explore, parcel search) are full bleed: no 1200 px measure, their own gutters. */
+  readonly widePage = computed(() => this.here().path.startsWith('/explore'));
+
+  readonly moreOpen = signal(false);
+  private readonly moreButton = viewChild<ElementRef<HTMLButtonElement>>('moreButton');
+  private readonly moreClose = viewChild<ElementRef<HTMLButtonElement>>('moreClose');
+  /** Everything but the open layer is inert: a dialog or the More sheet covers the whole shell. */
+  readonly shellInert = computed(() => this.layer.modalOpen() || this.moreOpen());
+  /** A sheet over the page: the bars beside it are inert (the page makes its own content inert). */
+  readonly barsInert = computed(() => this.layer.sheetOpen());
+  readonly scrimShown = computed(() => this.layer.sheetOpen() && !this.layer.modalOpen());
+
+  private readonly compareSelection = this.w.store.selectSignal(selectCompareSelection);
+  /**
+   * The toast on screen. The store clears every toast after 5 s; an error stays on the page until it
+   * is dismissed or another toast takes its place, so nobody has to read it against the clock
+   * (WCAG 2.2.1), and goes when the user leaves the page for another path.
+   */
+  readonly toastText = signal('');
+  readonly toastIsError = signal(false);
+  dismissToast() {
+    this.toastText.set('');
+    this.w.dismissToast();
+    // The close button goes with the toast: focus returns to the page, not to the document body.
+    document.getElementById('main-content')?.focus({ preventScroll: true });
+  }
+  /**
+   * The page a URL shows: its path, and for a navigation item told apart by a query (the lender's
+   * Pipeline, Applications, Import and Team on /loan-review?tab=) that item too.
+   */
+  private pageOf(here: Here) {
+    const items = [...this.railItems(), ...this.links()];
+    const tab = items.find((item) => item.query && isActive(item, here, items));
+    return tab ? here.path + '|' + tab.key : here.path;
+  }
+  /** A held error goes with the page it was raised on (and the store's copy, if it still has it). */
+  private dropHeldError() {
+    const held = this.toastText();
+    this.toastText.set('');
+    this.toastIsError.set(false);
+    if (this.w.ui().toast === held) this.w.dismissToast();
+  }
+
+  /** The compare tray floats at the bottom edge; toasts move up so neither covers the other. */
+  readonly trayShown = computed(
+    () => !this.here().path.startsWith('/compare') && this.compareSelection().length > 0,
+  );
+
+  constructor() {
+    effect(() => {
+      const ui = this.w.ui();
+      untracked(() => {
+        if (ui.toast) {
+          this.toastText.set(ui.toast);
+          this.toastIsError.set(ui.toastKind === 'error');
+        } else if (!this.toastIsError()) this.toastText.set('');
+      });
+    });
+    // Leaving the page takes a held error with it; a change of the query on the same page (a filter, a
+    // selected record, an in-page tab) keeps it, and so does a navigation that is cancelled or
+    // redirected back to the page. It goes when the navigation ends on another page, and only if it
+    // is still the toast it was when the navigation started: an error the navigation itself raised
+    // (a page that fails to open or to start) has replaced it in the store by then, and stays.
+    let leaving: { page: string; held: string } | null = null;
+    this.router.events.pipe(takeUntilDestroyed()).subscribe((e: RouterEvent) => {
+      if (e instanceof NavigationStart) {
+        leaving =
+          this.toastIsError() && this.toastText()
+            ? { page: this.pageOf(this.here()), held: this.toastText() }
+            : null;
+      } else if (e instanceof NavigationEnd) {
+        const from = leaving;
+        leaving = null;
+        if (!from || this.toastText() !== from.held) return;
+        const stored = this.w.ui().toast;
+        if (stored && stored !== from.held) return;
+        if (this.pageOf(parseUrl(e.urlAfterRedirects)) !== from.page) this.dropHeldError();
+      }
+    });
+    const pageTitle = inject(Title);
+    effect(() => pageTitle.setTitle(this.title() + ' | GeoZentra'));
+    effect(() => {
+      if (!this.w.access().entitlements.value) return;
+      try {
+        localStorage.setItem(SHELL_KEY, this.shell());
+      } catch {
+        // Storage can be unavailable (private mode); the shell still follows the entitlements.
+      }
+    });
+    // A new account answers the onboarding page first; it never shows again once answered.
+    effect(() => {
+      const e = this.signedIn() ? this.w.access().entitlements.value : null;
+      const path = this.here().path;
+      if (!e) return;
+      untracked(() => {
+        if (!e.onboardingCompleted && path !== '/onboarding')
+          void this.router.navigate(['/onboarding'], { replaceUrl: true });
+      });
+    });
+    // An area that is no longer allowed (a revocation reached the token, e.g. after a 403 and a
+    // token refresh) is left for the home dashboard. Route guards stop a new visit.
+    effect(() => {
+      const e = this.signedIn() ? this.w.access().entitlements.value : null;
+      const feature = featureFor(this.here().path);
+      if (!e || !feature || e.features[feature]) return;
+      untracked(() => {
+        void this.router.navigate(['/dashboard'], { replaceUrl: true });
+        this.w.toast('That area is no longer part of your account. You are back on your home overview.');
+      });
+    });
+    effect(() => {
+      // Navigating (e.g. from a link in the More sheet) closes the sheet.
+      this.here();
+      this.moreOpen.set(false);
+    });
+  }
   ngOnInit() {
     this.w.reloadUser();
   }
-  readonly w = inject(Workspace);
-  private router = inject(Router);
-  private pageTitle = inject(Title);
-  constructor() {
-    effect(() => this.pageTitle.setTitle(this.title() + ' | GeoZentra'));
-    // The root component lives as long as the page, so this listener never needs removing.
-    this.phoneQuery?.addEventListener('change', (e) => this.isPhone.set(e.matches));
+  active(item: NavItem) {
+    return isActive(item, this.here(), this.railItems());
   }
-  private readonly injector = inject(Injector);
-  readonly mobileOpen = signal(false);
-  /** Desktop/tablet: the sidebar can be hidden to give pages the full width; remembered per browser. */
-  readonly navHidden = signal(readNavHidden());
-  private readonly phoneQuery =
-    typeof matchMedia === 'function' ? matchMedia('(max-width: 650px)') : null;
-  /** Tracks the phone breakpoint so the toggles swap when the window is resized across it. */
-  private readonly isPhone = signal(this.phoneQuery?.matches ?? false);
-  /** Whether the navigation is currently showing; decides which toggle button is rendered. */
-  navShown() {
-    return this.isPhone() ? this.mobileOpen() : !this.navHidden();
+  openMore() {
+    this.moreOpen.set(true);
+    afterNextRender(() => this.moreClose()?.nativeElement.focus(), { injector: this.injector });
   }
-  toggleNav() {
-    // The button pressed disappears with the change, so hand focus to the one that replaces it.
-    const next = this.navShown() ? 'nav-toggle-top' : 'nav-toggle-inside';
-    afterNextRender(() => document.getElementById(next)?.focus(), { injector: this.injector });
-    if (this.isPhone()) {
-      this.mobileOpen.update((open) => !open);
-      return;
-    }
-    const hidden = !this.navHidden();
-    this.navHidden.set(hidden);
-    try {
-      localStorage.setItem(NAV_KEY, hidden ? '1' : '0');
-    } catch {
-      // Storage can be unavailable (private mode); the toggle still works for this visit.
-    }
-    // Leaflet maps only re-measure on window resize; let them refit once the sidebar has moved.
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+  closeMore() {
+    if (!this.moreOpen()) return;
+    this.moreOpen.set(false);
+    afterNextRender(() => this.moreButton()?.nativeElement.focus(), { injector: this.injector });
   }
-  readonly year = new Date().getFullYear();
-  readonly personas: Persona[] = ['Buyer', 'Investor', 'Realtor', 'Lender'];
-  readonly nav = [
-    { path: 'dashboard', title: 'Overview', icon: 'grid' },
-    { path: 'explore', title: 'Explore properties', icon: 'search' },
-    { path: 'opportunities', title: 'Opportunities', icon: 'chart' },
-    { path: 'compare', title: 'Compare', icon: 'compare' },
-    { path: 'investment-studio', title: 'Investment studio', icon: 'wallet' },
-    { path: 'portfolio', title: 'Portfolio', icon: 'brief' },
-    { path: 'saved', title: 'Saved & searches', icon: 'heart' },
-    { path: 'alerts', title: 'Alerts', icon: 'bell' },
-    { path: 'crm', title: 'Clients & deals', icon: 'user' },
-    { path: 'loan-review', title: 'Loan review', icon: 'layers' },
-    { path: 'assistant', title: 'AIZentra', icon: 'spark', soon: true },
-  ];
-  readonly adminNav = [
-    { path: 'import-jobs', title: 'Import jobs', icon: 'grid' },
-    { path: 'data-quality', title: 'Data quality', icon: 'check' },
-    { path: 'valuations', title: 'Valuation operations', icon: 'chart' },
-  ];
-  readonly mobileNav = [
-    { path: 'dashboard', label: 'Home', icon: 'grid' },
-    { path: 'explore', label: 'Explore', icon: 'search' },
-    { path: 'opportunities', label: 'For you', icon: 'chart' },
-    { path: 'saved', label: 'Saved', icon: 'heart' },
-  ];
-  /** The current path without query or fragment, e.g. "/admin/data-quality". */
-  private readonly path = toSignal(
-    this.router.events.pipe(
-      filter((e) => e instanceof NavigationEnd),
-      map((e) => {
-        this.mobileOpen.set(false);
-        return (e as NavigationEnd).urlAfterRedirects.split(/[?#]/)[0];
-      }),
-    ),
-    { initialValue: '/dashboard' },
-  );
-  /** The first path segment: the section of the app the page belongs to. */
-  readonly route = computed(() => this.path().split('/')[1]);
-  private readonly compareSelection = this.w.store.selectSignal(selectCompareSelection);
-  /** The compare tray floats at the bottom edge; toasts move up so neither covers the other. */
-  readonly trayShown = computed(
-    () => this.route() !== 'compare' && this.compareSelection().length > 0,
-  );
-  readonly title = computed(
-    () =>
-      this.nav.find((n) => n.path === this.route())?.title ??
-      (this.route() === 'settings'
-        ? 'Profile & preferences'
-        : this.route() === 'admin'
-          ? (this.adminNav.find((a) => a.path === this.path().split('/')[2])?.title ?? 'Admin')
-          : this.route() === 'property'
-            ? 'Property intelligence'
-            : 'Page not found'),
-  );
-  // Plain (change) binding keeps @angular/forms out of the initial bundle; the select snaps back to
-  // the stored persona and only moves once the save succeeds.
-  changePersona(control: HTMLSelectElement) {
-    const role = control.value as Persona;
-    const current = this.w.user().role;
-    control.value = current;
-    if (!this.personas.includes(role) || role === current || this.w.account().savingProfile) return;
-    this.w.store.dispatch(UserActions.changePersona({ role }));
+  escape() {
+    if (this.moreOpen()) this.closeMore();
+    else if (this.layer.sheetOpen() && !this.layer.modalOpen()) this.layer.dismissSheet();
   }
 }

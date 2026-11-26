@@ -7,73 +7,70 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f5f6f7" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
-    <!-- Fonts load in parallel with the app (an @import inside styles.css would wait for it first). -->
+    <!-- Fonts load in parallel with the app (an @import inside styles.css would wait for it first).
+         DM Sans only (DESIGN.md §3). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap"
     />
     <style>
       /* Splash shown until Angular renders (including the sign-in check). Self-contained: it must
-         not depend on the app stylesheet or web fonts, which may still be downloading. */
+         not depend on the app stylesheet or web fonts, which may still be downloading. The values
+         mirror the tokens in styles.css (paper, ink, ink-2, rule, copper, navy, copper-mark) and the
+         logo is the shell's brand (32 px tile, 20 px name), so nothing changes colour when the app
+         appears. DESIGN.md §5, Start-up. */
+      :root {
+        --boot-paper: #f5f6f7;
+        --boot-ink: #172735;
+        --boot-ink-2: #4e6170;
+        --boot-rule: #e2e7ea;
+        --boot-copper: #8a5636;
+        --boot-navy: #172735;
+        --boot-mark: #d39a73;
+      }
       html,
       body {
         margin: 0;
-        background: #f5f6f7;
+        background: var(--boot-paper);
       }
       .boot {
         min-height: 100vh;
         min-height: 100dvh;
         display: grid;
         place-content: center;
-        justify-items: center;
-        gap: 22px;
+        justify-items: start;
+        gap: 16px;
         padding: 24px;
         box-sizing: border-box;
-        font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-        color: #526773;
-        text-align: center;
-        /* Fast loads finish before this fades in, so there is no flash. */
-        animation: boot-in 0.3s ease-out 0.15s both;
+        font: 14px/20px 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+        color: var(--boot-ink-2);
       }
       .boot-brand {
         display: flex;
         align-items: center;
         gap: 12px;
-        font-size: 26px;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        color: #172735;
+        font-size: 20px;
+        line-height: 26px;
+        font-weight: 600;
+        color: var(--boot-ink);
       }
       .boot-logo {
-        position: relative;
-        width: 46px;
-        height: 46px;
         display: grid;
         place-items: center;
-        border-radius: 13px;
-        background: #172735;
-        color: #d39a73;
-        font-size: 24px;
-        line-height: 1;
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        background: var(--boot-navy);
+        color: var(--boot-mark);
+        font: 20px/1 Arial, sans-serif;
       }
-      /* Copper ring orbiting the mark. */
-      .boot-logo::after {
-        content: '';
-        position: absolute;
-        inset: -6px;
-        border-radius: 17px;
-        border: 2px solid transparent;
-        border-top-color: #ad724c;
-        border-right-color: #ad724c33;
-        animation: boot-spin 0.9s linear infinite;
-      }
+      /* Progress while the app loads. */
       .boot-bar {
         width: 180px;
-        height: 3px;
-        border-radius: 3px;
-        background: #e4e8ea;
+        height: 2px;
+        background: var(--boot-rule);
         overflow: hidden;
       }
       .boot-bar::before {
@@ -81,8 +78,7 @@
         display: block;
         width: 40%;
         height: 100%;
-        border-radius: inherit;
-        background: #ad724c;
+        background: var(--boot-copper);
         animation: boot-slide 1.2s ease-in-out infinite;
       }
       .boot p {
@@ -90,25 +86,15 @@
       }
       .boot-slow {
         max-width: 320px;
-        font-size: 13px;
-        color: #77818b;
-        /* Appears only if start-up takes unusually long (e.g. the sign-in server is slow). */
-        animation: boot-in 0.4s ease-out 8s both;
+        visibility: hidden;
+      }
+      /* Set by the timer below if start-up takes unusually long (e.g. the sign-in server is slow). */
+      .boot-slow.is-shown {
+        visibility: visible;
       }
       .boot-slow a {
-        color: #ad724c;
-        font-weight: 600;
-      }
-      @keyframes boot-in {
-        from {
-          opacity: 0;
-          transform: translateY(4px);
-        }
-      }
-      @keyframes boot-spin {
-        to {
-          transform: rotate(360deg);
-        }
+        color: var(--boot-copper);
+        font-weight: 500;
       }
       @keyframes boot-slide {
         from {
@@ -118,17 +104,24 @@
           transform: translateX(250%);
         }
       }
+      /* Reduced motion: nothing moves; the line stands still. */
       @media (prefers-reduced-motion: reduce) {
-        .boot-logo::after,
         .boot-bar::before {
           animation: none;
-        }
-        .boot-bar::before {
           width: 100%;
           opacity: 0.5;
         }
       }
     </style>
+    <script>
+      // After 8 s, offer a reload. A timer rather than a CSS animation: reduced motion turns
+      // animations off, and the line must still appear. Once the app renders, the line is gone and
+      // this does nothing.
+      setTimeout(function () {
+        var slow = document.querySelector('.boot-slow');
+        if (slow) slow.classList.add('is-shown');
+      }, 8000);
+    </script>
   </head>
   <body>
     <app-root>
@@ -137,10 +130,8 @@
           <span class="boot-logo" aria-hidden="true">⌁</span>GeoZentra
         </div>
         <div class="boot-bar" aria-hidden="true"></div>
-        <p>Preparing your workspace…</p>
-        <p class="boot-slow">
-          This is taking longer than usual. <a href="">Reload the page</a> if it doesn't open soon.
-        </p>
+        <p>Opening GeoZentra…</p>
+        <p class="boot-slow">Taking longer than usual. <a href="">Reload</a></p>
         <noscript><p>GeoZentra needs JavaScript to run.</p></noscript>
       </div>
     </app-root>

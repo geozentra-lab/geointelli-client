@@ -1,0 +1,162 @@
+/*
+ * Settings sections (DESIGN.md §5 Record, Settings): a white section under a 2 px ink rule, its
+ * heading and one line on the left (4 of 12 columns), the form on the right (8). One column below
+ * 1024 px. Shared by the profile, preferences, notification and license forms.
+ */
+:host {
+  display: block;
+}
+.se {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: var(--sp-16) var(--sp-24);
+  padding: var(--sp-16) var(--sp-24) var(--sp-24);
+  background: var(--surface);
+  border-top: 2px solid var(--ink);
+  scroll-margin-top: calc(var(--topbar-h) + var(--sp-8));
+}
+.se-head h2 {
+  margin: 0;
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+}
+.se-head p {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+  color: var(--ink-2);
+  max-width: 40ch;
+}
+.se-head .se-meta {
+  margin-top: var(--sp-8);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+}
+.se-body {
+  min-width: 0;
+}
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+fieldset + fieldset,
+.se-block + fieldset,
+.se-body > * + .se-block,
+form + .se-block {
+  margin-top: var(--sp-16);
+}
+legend,
+.se-legend {
+  display: block;
+  width: 100%;
+  margin: 0 0 var(--sp-12);
+  padding: 0 0 var(--sp-4);
+  border-bottom: 1px solid var(--ink);
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+  font-weight: 600;
+}
+legend .optional,
+.se-legend .optional {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.se-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-12) var(--sp-16);
+}
+.se-wide {
+  grid-column: 1 / -1;
+}
+.se-hint {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+/* Radio and checkbox rows: the control, its words, and a caption under the words. */
+.se-choice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: var(--sp-8);
+  align-items: start;
+  padding: var(--sp-8) 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+  cursor: pointer;
+}
+.se-choice:first-of-type {
+  padding-top: 0;
+}
+.se-choice input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--ink);
+}
+.se-choice small {
+  display: block;
+  grid-column: 2;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+.se-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-8) var(--sp-12);
+  margin-top: var(--sp-16);
+}
+.se-why {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+.se-note {
+  margin: var(--sp-12) 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+.se-text {
+  margin: 0 0 var(--sp-12);
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+  max-width: var(--measure);
+}
+.se-error {
+  margin: var(--sp-8) 0 0;
+}
+gz-record-group + .se-text,
+gz-record-group + fieldset,
+gz-record-group + form,
+.se-text + form {
+  margin-top: var(--sp-16);
+}
+@media (max-width: 1023.98px) {
+  .se {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .se-head p {
+    max-width: var(--measure);
+  }
+}
+@media (max-width: 700px) {
+  .se {
+    padding: var(--sp-12) var(--sp-16) var(--sp-16);
+  }
+  /* One field a row: two at 390 px wrapped labels like "Name on the license" out of line. */
+  .se-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .se-actions .btn.primary {
+    flex: 1 1 100%;
+  }
+}

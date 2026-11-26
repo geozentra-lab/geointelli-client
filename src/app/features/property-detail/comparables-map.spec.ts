@@ -172,9 +172,15 @@ describe('Comparables map', () => {
     expect(c.placing()).toBe(false);
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('1 comparable could not be placed on the map');
-    // The list still carries every comparable, including the one missing from the map.
-    expect(fixture.nativeElement.querySelectorAll('.complist li')).toHaveLength(2);
+    // The table still carries every comparable, including the one missing from the map.
+    const rows = fixture.nativeElement.querySelectorAll('.complist tbody tr');
+    expect(rows).toHaveLength(2);
     expect(text).toContain('not on map');
+    // A row is the way to pick a sale: Enter (or a click) selects it for the map.
+    rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+    expect(c.active()).toBe(7);
+    expect(rows[0].classList).toContain('sel');
   });
 
   it('shows an empty state when no comparable sales are found', () => {

@@ -11,6 +11,7 @@ import {
   LenderCollateralAnalysisDTO,
   LenderImportRequest,
   LenderImportResult,
+  LenderMemberLookupDTO,
   LenderOrganizationDTO,
   LenderPipelineDTO,
 } from '../core/models/lender';
@@ -30,6 +31,16 @@ export class LenderService {
   }
   members(organizationId: number) {
     return this.http.get<number[]>(`${this.api}/organizations/${organizationId}/members`);
+  }
+  /**
+   * Owner only: the account that signs in with this email (exact, case ignored). 404 when no
+   * account uses it; an account exists once its owner has signed in to GeoZentra.
+   */
+  lookupMember(organizationId: number, email: string) {
+    return this.http.get<LenderMemberLookupDTO>(
+      `${this.api}/organizations/${organizationId}/members/lookup`,
+      { params: { email } },
+    );
   }
   addMember(organizationId: number, userId: number) {
     return this.http.post<void>(`${this.api}/organizations/${organizationId}/members`, { userId });

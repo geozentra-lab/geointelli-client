@@ -43,16 +43,16 @@ import { Component, computed, effect, inject, input, output, signal } from '@ang
       height: 32px;
       padding: 0;
       border: 1px solid transparent;
-      border-radius: 50%;
+      border-radius: var(--radius-control);
       background: transparent;
-      color: inherit;
-      font-size: 24px;
+      color: var(--ink-2);
+      font-size: 22px;
       line-height: 1;
       cursor: pointer;
     }
     .dismiss-message:hover {
-      background: #f3d9d5;
-      border-color: var(--danger-line);
+      background: var(--row-hover);
+      color: var(--ink);
     }
   `,
 })

@@ -5,7 +5,12 @@ import {
   inject,
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
-import { provideRouter, withNavigationErrorHandler } from '@angular/router';
+import {
+  Router,
+  provideRouter,
+  withNavigationErrorHandler,
+  withViewTransitions,
+} from '@angular/router';
 import { UiActions } from './store/ui/ui.actions';
 import { Store } from '@ngrx/store';
 import {
@@ -32,6 +37,9 @@ export function initializeKeycloak(keycloak: KeycloakService) {
   return () => keycloak.init();
 }
 
+/** Page transitions running now (a quick second click can start one before the first ends). */
+let pageChanges = 0;
+
 export const appConfig: ApplicationConfig = {
   providers: [
     ...provideAppStore(),
@@ -48,6 +56,38 @@ export const appConfig: ApplicationConfig = {
             kind: 'error',
           }),
         );
+      }),
+      // A new page cross-fades in (styles.css, "Page transitions"; the shell stays still). A change
+      // of query parameters only (filters, tabs, paging) keeps the page still, and so does reduced
+      // motion.
+      withViewTransitions({
+        skipInitialTransition: true,
+        onViewTransitionCreated: ({ transition }) => {
+          const router = inject(Router);
+          const target = router.currentNavigation()?.finalUrl;
+          const samePage =
+            !!target &&
+            router.isActive(target, {
+              paths: 'exact',
+              matrixParams: 'exact',
+              fragment: 'ignored',
+              queryParams: 'ignored',
+            });
+          if (samePage || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+            transition.skipTransition();
+            return;
+          }
+          // The page area is named for the transition only while it runs: a named element is its
+          // own stacking context, and a lasting one kept the record sheet (fixed, inside main)
+          // under the shell scrim, so nothing in it could be clicked. The class is set before the
+          // old page is captured, on the next frame.
+          pageChanges++;
+          document.documentElement.classList.add('page-changing');
+          const done = () => {
+            if (--pageChanges === 0) document.documentElement.classList.remove('page-changing');
+          };
+          transition.finished.then(done, done);
+        },
       }),
     ),
     { provide: ErrorHandler, useClass: AppErrorHandler },

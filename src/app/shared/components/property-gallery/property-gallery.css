@@ -9,8 +9,7 @@
   height: 300px;
   position: relative;
   overflow: hidden;
-  border-radius: 12px;
-  background: #eaf0f1;
+  background: var(--paper);
 }
 .main-photo {
   display: block;
@@ -24,62 +23,86 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--sp-8);
   text-align: center;
-  padding: 24px;
-  color: var(--muted);
-  font-size: 13px;
+  padding: var(--sp-24);
+  color: var(--ink-2);
+  font-size: var(--fs-cell);
 }
 .photo-placeholder > gz-icon {
-  color: #8ca2aa;
+  color: var(--ink-2);
   margin-bottom: 4px;
 }
 .photo-placeholder strong {
-  font-size: 16px;
-  color: var(--ink-2);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--ink);
 }
+/* Nothing to show (no photos, the photos failed, or the only one failed): one compact line, not a
+   300 px empty box above the facts. With several photos the stage keeps its height, so moving
+   past a failed one doesn't make the page jump. */
+.photo-stage:has(> .photo-placeholder):not(:has(> .photo-arrow)) {
+  height: auto;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+}
+.photo-stage:has(> .photo-placeholder):not(:has(> .photo-arrow)) .photo-placeholder {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: var(--sp-8) var(--sp-12);
+  padding: var(--sp-12) var(--sp-16);
+  text-align: left;
+}
+.photo-stage:has(> .photo-placeholder):not(:has(> .photo-arrow)) .photo-placeholder > gz-icon {
+  margin-bottom: 0;
+}
+.photo-stage:has(> .photo-placeholder):not(:has(> .photo-arrow)) .photo-count {
+  display: none;
+}
+/* Loading: a solid block, no shimmer. */
 .photo-loading {
-  background: linear-gradient(100deg, #edf1f2, #f7f9f9, #edf1f2);
-  background-size: 200%;
+  background: var(--skeleton);
 }
 .photo-count {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
-  background: #172735c9;
-  color: #fff;
-  border: 1px solid #ffffff40;
-  border-radius: 6px;
-  padding: 7px 11px;
-  font-size: 12px;
-  backdrop-filter: blur(8px);
+  right: 12px;
+  bottom: 12px;
+  background: var(--ink);
+  color: var(--surface);
+  padding: 4px 8px;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .photo-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 38px;
-  height: 38px;
+  width: var(--control-h);
+  height: var(--control-h);
   display: grid;
   place-items: center;
-  border: 1px solid #ffffff80;
-  border-radius: 50%;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-control);
   color: var(--ink);
-  background: #fffffff0;
-  font-size: 30px;
+  background: var(--surface);
+  font-size: 24px;
   line-height: 1;
-  box-shadow: 0 2px 12px #17273520;
+}
+.photo-arrow:hover {
+  background: var(--row-hover);
 }
 .previous {
-  left: 14px;
+  left: 12px;
 }
 .next {
-  right: 14px;
+  right: 12px;
 }
 .photo-thumbnails {
   display: flex;
-  gap: 8px;
-  padding: 12px 2px 2px;
+  gap: var(--sp-8);
+  padding: var(--sp-8) 2px 2px;
   overflow: auto;
 }
 .photo-thumbnail {
@@ -87,16 +110,15 @@
   height: 54px;
   flex-shrink: 0;
   padding: 0;
-  background: #eaf0f1;
+  background: var(--paper);
   border: 2px solid transparent;
-  border-radius: 7px;
   overflow: hidden;
   display: grid;
   place-items: center;
-  opacity: 0.7;
+  opacity: 0.75;
 }
 .photo-thumbnail.selected {
-  border-color: #ad724c;
+  border-color: var(--copper);
   opacity: 1;
 }
 .photo-thumbnail img {
@@ -105,17 +127,13 @@
   object-fit: cover;
 }
 .photo-credit {
-  font-size: 11px;
-  color: var(--muted);
-  margin: 9px 0 0;
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+  margin: var(--sp-8) 0 0;
   overflow-wrap: anywhere;
 }
-@keyframes photo-shimmer {
-  to {
-    background-position: 200%;
-  }
-}
-@media (max-width: 650px) {
+@media (max-width: 700px) {
   .photo-stage {
     height: 220px;
   }
@@ -124,20 +142,18 @@
     height: 46px;
   }
 }
-
 .photo-spinner {
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-
 .image-loading-overlay {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  background: #eaf0f1;
+  background: var(--paper);
   pointer-events: none;
 }
 .photo-arrow,

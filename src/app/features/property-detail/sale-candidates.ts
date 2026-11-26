@@ -1,5 +1,5 @@
 import { Component, computed, effect, inject, input, untracked } from '@angular/core';
-import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
+import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Store } from '@ngrx/store';
@@ -7,6 +7,9 @@ import { PropertyInsightsActions as A } from '../../store/property-insights/prop
 import { selectPropertyInsights } from '../../store/property-insights/property-insights.selectors';
 import { ComparableCandidate } from '../../core/models/api';
 import { RequestStatus } from '../../shared/components/request-status';
+import { RECORD_KIT } from '../../shared/components/record';
+import { TABLE_KIT } from '../../shared/table';
+import { formatRecordDate } from '../../shared/data/format';
 
 const MATCH_LABELS: Record<string, string> = {
   SAME_PARENT_GROUP: 'Same building',
@@ -22,20 +25,19 @@ const MATCH_LABELS: Record<string, string> = {
  */
 @Component({
   selector: 'gz-sale-candidates',
-  imports: [CurrencyPipe, DatePipe, DecimalPipe, FormsModule, RouterLink, RequestStatus],
+  imports: [
+    CurrencyPipe,
+    DecimalPipe,
+    FormsModule,
+    RouterLink,
+    RequestStatus,
+    ...RECORD_KIT,
+    ...TABLE_KIT,
+  ],
   template: `
-    <div class="panel section">
-      <div class="panelhead">
-        <h3>Nearby qualified sales</h3>
-        @if (result().value; as r) {
-          <span class="smalltext muted"
-            >{{ r.returnedCount }} {{ r.returnedCount === 1 ? 'sale' : 'sales' }} since
-            {{ r.saleDateFrom | date: 'MMM y' }}</span
-          >
-        }
-      </div>
-      <p class="sub">
-        All recorded arm's-length sales that pass these filters, nearest first. They are not ranked
+    <gz-record-section heading="Nearby qualified sales">
+      <p class="sc-lede">
+        All recorded arm’s-length sales that pass these filters, nearest first. They are not ranked
         or adjusted for differences, unlike the comparables above.
       </p>
       <form class="filterbar candidate-filters" (ngSubmit)="search()">
@@ -81,70 +83,139 @@ const MATCH_LABELS: Record<string, string> = {
         (retry)="search()"
       />
       @if (result().value; as r) {
+        <p class="sc-count">
+          {{ r.returnedCount }} {{ r.returnedCount === 1 ? 'sale' : 'sales' }}
+          @if (day(r.saleDateFrom); as from) {
+            since {{ from }}
+          }
+        </p>
         @if (r.status === 'INSUFFICIENT_DATA') {
-          <p class="insight warning section" role="status">
-            Only {{ r.returnedCount }} of the {{ r.minimumCandidates }} sales needed for reliable
+          <p class="sc-caution" role="status">
+            Only {{ r.returnedCount }} of the {{ r.minimumCandidates }} sales needed for a reliable
             comparison were found. Try a wider radius or a longer period.
           </p>
         }
-        @for (w of r.warnings; track w) {
-          <p class="sourcedata">{{ w }}</p>
-        }
         @if (!r.candidates.length) {
-          <p class="sub spacer">No recorded sale matches these filters. Try widening them.</p>
+          <p class="sc-empty">No recorded sale matches these filters. Try widening them.</p>
         } @else {
-          <div class="tablewrap">
-            <table>
-              <thead>
+          <table gz-table sticky="none">
+            <caption class="sr-only">
+              Nearby qualified sales, nearest first
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Address</th>
+                <th scope="col" class="num" data-priority="2">Sold</th>
+                <th scope="col" class="num">Price</th>
+                <th scope="col" class="num" data-priority="3">Beds</th>
+                <th scope="col" class="num" data-priority="3">Baths</th>
+                <th scope="col" class="num" data-priority="3">Living area, sq ft</th>
+                <th scope="col" class="num" data-priority="2">Distance</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of r.candidates; track c.saleId) {
                 <tr>
-                  <th scope="col">Address</th>
-                  <th scope="col">Sold</th>
-                  <th scope="col">Price</th>
-                  <th scope="col">Beds / baths</th>
-                  <th scope="col">Living area</th>
-                  <th scope="col">Distance</th>
-                  <th scope="col">Match</th>
+                  <td>
+                    <a [routerLink]="['/property', c.propertyId]">{{
+                      c.address || 'Folio ' + c.folio
+                    }}</a>
+                    <span class="cell-sub">{{ match(c) }}</span>
+                  </td>
+                  <td gz-cell class="num nowrap" data-priority="2" [missing]="!day(c.saleDate)" reason="Not in the sale record">
+                    {{ day(c.saleDate) }}
+                  </td>
+                  <td gz-cell class="num nowrap" [missing]="c.salePrice == null" reason="Not in the sale record">
+                    {{ c.salePrice | currency: 'USD' : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td gz-cell class="num" data-priority="3" [missing]="c.bedrooms == null" reason="Not in the county record">
+                    {{ c.bedrooms }}
+                  </td>
+                  <td gz-cell class="num" data-priority="3" [missing]="c.bathrooms == null" reason="Not in the county record">
+                    {{ c.bathrooms }}
+                  </td>
+                  <td gz-cell class="num" data-priority="3" [missing]="!c.livingAreaSqft" reason="Not in the county record">
+                    {{ c.livingAreaSqft | number: '1.0-0' }}
+                  </td>
+                  <td gz-cell class="num nowrap" data-priority="2" [missing]="distance(c) === null" reason="Not returned for this sale">
+                    {{ distance(c) }}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                @for (c of r.candidates; track c.saleId) {
-                  <tr>
-                    <td>
-                      <a [routerLink]="['/property', c.propertyId]">{{
-                        c.address || 'Folio ' + c.folio
-                      }}</a>
-                    </td>
-                    <td>{{ c.saleDate | date: 'mediumDate' }}</td>
-                    <td>{{ c.salePrice | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
-                    <td>{{ c.bedrooms ?? '—' }} / {{ c.bathrooms ?? '—' }}</td>
-                    <td>
-                      {{ c.livingAreaSqft ? (c.livingAreaSqft | number: '1.0-0') + ' sqft' : '—' }}
-                    </td>
-                    <td>{{ distance(c) }}</td>
-                    <td>
-                      <span class="tag" [title]="c.qualificationDescription || ''">{{
-                        match(c)
-                      }}</span>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
+              }
+            </tbody>
+          </table>
         }
-        <p class="sourcedata">
-          Selection {{ r.selectionVersion }} · sales on record up to
-          {{ r.asOfDate | date: 'mediumDate' }}
+        @for (w of r.warnings; track w) {
+          <p class="table-note">{{ w }}</p>
+        }
+        <p class="table-note">
+          @if (day(r.asOfDate); as d) {
+            Sales on record up to {{ d }}.
+          }
+          @if (anyMissing(r.candidates)) {
+            Unavailable: not in the county record.
+          }
         </p>
+        @if (r.selectionVersion) {
+          <details class="sc-method">
+            <summary>Method</summary>
+            <gz-record-group>
+              <div gz-record-row label="Selection">{{ r.selectionVersion }}</div>
+            </gz-record-group>
+          </details>
+        }
       }
-    </div>
+    </gz-record-section>
   `,
   styles: `
+    :host {
+      display: block;
+      min-width: 0;
+    }
+    .sc-lede,
+    .sc-count {
+      margin: 0 0 var(--sp-8);
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+      max-width: var(--measure);
+    }
+    .sc-count {
+      margin: var(--sp-12) 0 0;
+      color: var(--ink);
+      font-weight: 500;
+    }
     .candidate-filters {
-      margin: 14px 0;
+      margin: var(--sp-12) 0 0;
     }
     .candidate-filters .formfield {
       flex: 0 1 160px;
+    }
+    .sc-caution {
+      margin: var(--sp-8) 0 0;
+      font-size: var(--fs-cell);
+      color: var(--attention);
+      max-width: var(--measure);
+    }
+    .sc-empty {
+      margin: var(--sp-8) 0 0;
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+    }
+    table {
+      margin-top: var(--sp-8);
+    }
+    .sc-method {
+      margin-top: var(--sp-12);
+      font-size: var(--fs-cell);
+    }
+    .sc-method summary {
+      cursor: pointer;
+      color: var(--copper);
+      font-weight: 500;
+    }
+    .sc-method gz-record-group {
+      max-width: 480px;
     }
   `,
 })
@@ -194,9 +265,24 @@ export class SaleCandidates {
   match(c: ComparableCandidate) {
     return MATCH_LABELS[c.matchLevel] ?? c.matchLevel.replace(/_/g, ' ').toLowerCase();
   }
+  day(value: string | null | undefined) {
+    return formatRecordDate(value);
+  }
+  /** Whether any shown cell is the Unavailable marker, so its reason is written under the table. */
+  anyMissing(rows: readonly ComparableCandidate[]) {
+    return rows.some(
+      (c) =>
+        !this.day(c.saleDate) ||
+        c.salePrice == null ||
+        c.bedrooms == null ||
+        c.bathrooms == null ||
+        !c.livingAreaSqft ||
+        c.distanceMeters == null,
+    );
+  }
   distance(c: ComparableCandidate) {
     const m = c.distanceMeters;
-    if (m === null || m === undefined) return '—';
+    if (m === null || m === undefined) return null;
     return (m / 1609.344).toFixed(m < 1609 ? 2 : 1) + ' mi';
   }
 }

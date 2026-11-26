@@ -29,34 +29,33 @@ import { COMPARE_MAX, COMPARE_MIN } from '../../store/property-compare/property-
     </aside>
   }`,
   styles: `
+    /* A floating bar: the menu shadow and a rule-strong border, square corners. */
     .compare-tray {
       position: fixed;
       left: 50%;
-      bottom: 22px;
+      bottom: 24px;
       transform: translateX(-50%);
-      z-index: 40;
+      z-index: var(--z-bar);
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 10px 12px 10px 18px;
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      box-shadow: 0 10px 30px rgba(23, 39, 53, 0.16);
-      font-size: 13px;
+      padding: 8px 8px 8px 16px;
+      background: var(--surface);
+      border: 1px solid var(--rule-strong);
+      box-shadow: var(--shadow-menu);
+      font-size: var(--fs-cell);
     }
     .disabled {
       opacity: 0.55;
       pointer-events: auto;
       cursor: not-allowed;
     }
-    @media (max-width: 760px) {
+    @media (max-width: 700px) {
       .compare-tray {
-        bottom: 76px;
+        bottom: calc(var(--bottombar-h) + 12px);
         left: 12px;
         right: 12px;
         transform: none;
-        border-radius: 14px;
         justify-content: space-between;
       }
     }

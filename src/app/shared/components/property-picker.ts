@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Workspace } from '../data/workspace';
+import { formatFolio } from '../data/format';
 import { CatalogActions } from '../../store/catalog/catalog.actions';
 import { IDLE_LOOKUP, LOOKUP_PAGE } from '../../store/catalog/catalog.model';
 import { PropertySearchItem } from '../../core/models/api';
@@ -54,7 +55,7 @@ let nextId = 0;
             [routerLink]="['/property', id]"
             target="_blank"
             rel="noopener"
-            [attr.aria-label]="'View details for ' + title(id) + ' (opens in a new tab)'"
+            [attr.aria-label]="'View details for ' + spoken(id) + ' (opens in a new tab)'"
             title="View property details"
             ><gz-icon name="external-link"
           /></a>
@@ -117,7 +118,7 @@ let nextId = 0;
                     target="_blank"
                     rel="noopener"
                     [attr.aria-label]="
-                      'View details for ' + (p.address || p.folio) + ' (opens in a new tab)'
+                      'View details for ' + itemName(p) + ' (opens in a new tab)'
                     "
                     title="View property details"
                     ><gz-icon name="external-link"
@@ -172,10 +173,10 @@ let nextId = 0;
         color: inherit;
         cursor: pointer;
         padding: 4px;
-        border-radius: 6px;
+        border-radius: 0;
       }
       .pick:hover:not(:disabled) {
-        background: #f1f5f7;
+        background: var(--row-hover);
       }
       .pick:disabled {
         cursor: default;
@@ -190,24 +191,24 @@ let nextId = 0;
       }
       small {
         display: block;
-        color: var(--muted);
-        margin-top: 5px;
-        font-size: 12px;
+        color: var(--ink-2);
+        margin-top: 4px;
+        font-size: var(--fs-caption);
+        line-height: var(--lh-caption);
       }
       img,
       .thumbnail {
         width: 76px;
         height: 64px;
         object-fit: cover;
-        border-radius: 6px;
         flex-shrink: 0;
       }
       .thumbnail {
         display: grid;
         place-items: center;
         flex: 0 0 76px;
-        background: #edf1f4;
-        color: var(--muted);
+        background: var(--paper);
+        color: var(--ink-2);
       }
       .chosen {
         flex-wrap: wrap;
@@ -291,13 +292,29 @@ export class PropertyPicker {
     this.selected.emit(null);
     this.search('');
   }
-  title(id: number) {
+  /** The address, or the folio as the county prints it; null while neither is known. */
+  private name(id: number) {
     const p = this.w.home(id);
-    return p?.address || (p ? 'Folio ' + p.folio : 'Property #' + id);
+    return p?.address || (p?.folio ? 'Folio ' + formatFolio(p.folio) : null);
+  }
+  /** Never "Property #42" (DESIGN.md §6): the address, the folio, or what is happening. */
+  title(id: number) {
+    const known = this.name(id);
+    if (known) return known;
+    return this.w.home(id) || this.w.catalog().unresolved[id]
+      ? 'Address unavailable'
+      : 'Loading the address…';
+  }
+  spoken(id: number) {
+    return this.name(id) ?? 'this property';
+  }
+  /** A search result's name, from the result itself (it may not be in the catalog). */
+  itemName(p: PropertySearchItem) {
+    return p.address || (p.folio ? 'Folio ' + formatFolio(p.folio) : 'this property');
   }
   subtitle(id: number) {
     const p = this.w.home(id);
-    if (p) return this.describe(p);
+    if (p) return p.address ? this.describe(p) : this.describe({ ...p, folio: '' });
     return this.w.catalog().unresolved[id]
       ? 'Property details are unavailable right now.'
       : 'Loading property details…';
@@ -307,7 +324,7 @@ export class PropertyPicker {
   }
   describe(p: PropertySearchItem) {
     const place = [p.city || p.countyName, p.stateCode, p.zip].filter(Boolean).join(' ');
-    return [place, 'Folio ' + p.folio].filter(Boolean).join(' · ');
+    return [place, p.folio ? 'Folio ' + formatFolio(p.folio) : null].filter(Boolean).join(' · ');
   }
   photo(id: number) {
     if (this.broken().has(id)) return null;

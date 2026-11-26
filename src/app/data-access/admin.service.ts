@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { environment } from '../../environments/environment';
+import { READ_TIMEOUT } from '../core/interceptors/error.interceptor';
 import { Page } from '../core/models/api';
 import {
   DataQualityReportDTO,
@@ -15,10 +16,15 @@ import { queryParams } from './http-params';
 export class AdminService {
   private http = inject(HttpClient);
   private base = environment.apiUrl + '/admin';
-  /** Every rule with its count; with a rule, also one page of its issues. Read-only. */
+  /**
+   * Every rule with its count; with a rule, also one page of its issues. Read-only. The server
+   * counts every rule over the full tables while this request waits (then reuses the counts for
+   * 10 minutes), which takes far longer than the 12 s read limit: allow up to 3 minutes.
+   */
   dataQuality(rule: DataQualityRule | null, page = 0, size = 20) {
     return this.http.get<DataQualityReportDTO>(this.base + '/data-quality/issues', {
       params: queryParams({ rule, page, size }),
+      context: new HttpContext().set(READ_TIMEOUT, 180_000),
     });
   }
   valuationRefreshRequests(status: ValuationRefreshStatus | null, page = 0, size = 20) {

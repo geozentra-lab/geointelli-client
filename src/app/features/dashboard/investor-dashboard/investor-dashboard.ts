@@ -1,19 +1,19 @@
 import { Component, computed, effect, inject, untracked } from '@angular/core';
-import { DatePipe, DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { DashboardOverview } from '../dashboard-overview';
 import { Workspace } from '../../../shared/data/workspace';
+import { PageHeading } from '../../../shared/components/page-heading';
+import { TABLE_KIT } from '../../../shared/table';
+import { countOf, formatRecordDate, joinParts, plainNote } from '../../../shared/data/format';
+import { labelFor } from '../../../shared/pipes/label.pipe';
 import { HoldingOccupancy, PortfolioMetric, PortfolioSummaryDTO } from '../../../core/models/api';
 import { InvestorOccupancyExposureCardDTO } from '../../../core/models/dashboard';
-import { Icon } from '../../../shared/components/icon/icon';
-import { labelFor } from '../../../shared/pipes/label.pipe';
 import { InvestorDashboardActions as A } from '../../../store/investor-dashboard/investor-dashboard.actions';
 import {
   selectInvestorDashboard,
   selectSummaryTarget,
 } from '../../../store/investor-dashboard/investor-dashboard.selectors';
-import { Kpi, RecentActivity, TopOpportunities, usdCompact } from '../dash-ui';
-import { AffordabilityCard } from '../finance-cards';
+import { Kpi, KpiCoverage, usdCompact } from '../dash-ui';
+import { OVERVIEW_STYLES, OverviewSection } from '../overview-ui';
 
 const CATEGORY_LABELS: Record<string, string> = {
   RENT: 'Rent',
@@ -24,372 +24,537 @@ const CATEGORY_LABELS: Record<string, string> = {
   PROPERTY_TAX: 'Property tax',
   HOA: 'HOA',
   UTILITIES: 'Utilities',
-  MANAGEMENT_FEE: 'Management',
-  MORTGAGE_PAYMENT: 'Mortgage',
+  MANAGEMENT_FEE: 'Management fee',
+  MORTGAGE_PAYMENT: 'Mortgage payment',
   OTHER_EXPENSE: 'Other expenses',
 };
 const OCCUPANCY: [HoldingOccupancy, string][] = [
   ['RENTED', 'Rented'],
   ['VACANT', 'Vacant'],
   ['OWNER_OCCUPIED', 'Owner occupied'],
-  ['UNKNOWN', 'Not set'],
+  ['UNKNOWN', 'Not recorded'],
 ];
+const usd = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+type Category = NonNullable<PortfolioSummaryDTO['financials']>['categories'][number];
 
 /**
- * Residential investor (SOW II.4.o): value, equity and debt and occupancy and exposure across all
- * portfolios or one, from the investor dashboard cards; income and expenses of a single portfolio
- * from its summary; scored opportunities and financing. Nothing is recalculated here.
+ * Investor overview (DESIGN.md §6, §8): the lead is the portfolio summary strip (value, debt and
+ * equity of the scope, by ownership share), each partial figure labelled "Partial: N of M …" with
+ * its coverage bar, and the one action that raises coverage: holdings without a loan balance (the
+ * debt metric's uncovered holdings) and "Add balances in Portfolio". Then two columns: occupancy
+ * (as reported) and cash flow (recorded income and expenses, which exist per portfolio only).
+ * Nothing is recalculated here; every count comes from the cards.
+ *
+ * The holding pane can't be opened from here (Portfolio has no holding route or parameter), so
+ * the action opens Portfolio (PROGRESS.md, needs store or route work).
  */
 @Component({
   selector: 'gz-investor-dashboard',
-  imports: [
-    DashboardOverview,
-    Kpi,
-    TopOpportunities,
-    RecentActivity,
-    AffordabilityCard,
-    DatePipe,
-    DecimalPipe,
-    RouterLink,
-    Icon,
-  ],
-  template: `@if (signedIn()) {
-      @if (d().portfolios.value; as page) {
-        @if (page.content.length > 1) {
-          <div class="dash-switch inline-filter">
-            <label for="dash-portfolio">Portfolio</label>
-            <select
-              id="dash-portfolio"
-              class="field"
-              [value]="d().portfolioId ?? ''"
-              (change)="select($any($event.target).value)"
-            >
-              <option value="">All portfolios · {{ holdings(page.content) }} holdings</option>
-              @for (p of page.content; track p.id) {
-                <option [value]="p.id">{{ p.name }} · {{ p.holdingCount }} holdings</option>
-              }
-            </select>
-          </div>
-        }
+  imports: [RouterLink, PageHeading, Kpi, OverviewSection, ...TABLE_KIT],
+  template: `@let page = d().portfolios.value;
+    <gz-heading title="Investments">
+      @if (page && page.content.length > 1) {
+        <label class="ov-scope" for="dash-portfolio">
+          <span>Portfolio</span>
+          <select id="dash-portfolio" (change)="select($any($event.target).value)">
+            <option value="" [selected]="d().portfolioId === null">
+              All portfolios{{ allHoldingsText() }}
+            </option>
+            @for (p of page.content; track p.id) {
+              <option [value]="p.id" [selected]="p.id === d().portfolioId">
+                {{ p.name }} · {{ countOf(p.holdingCount, 'holding') }}
+              </option>
+            }
+          </select>
+        </label>
       }
-      @let v = d().valueEquityDebt.value;
-      @let o = d().occupancyExposure.value;
-      @let s = d().summary.value;
-      <div class="kpi-row section">
-        <gz-kpi
-          label="Portfolio value"
-          icon="brief"
-          link="/portfolio"
-          [loading]="d().valueEquityDebt.loading && !v"
-          [value]="amount(v?.value)"
-          [caption]="coverage(v?.value, 'valued')"
-          [unavailable]="noPortfolio() ? 'Create a portfolio to start' : 'No valuations yet'"
-        />
-        <gz-kpi
-          label="Equity"
-          icon="wallet"
-          tone="green"
-          link="/portfolio"
-          [loading]="d().valueEquityDebt.loading && !v"
-          [value]="amount(v?.equity)"
-          [caption]="v ? 'Debt ' + (amount(v.debt) ?? 'not recorded') + asOf(v.asOfDate) : ''"
-          unavailable="Needs values and loan balances"
-        />
-        <gz-kpi
-          label="Net cash flow"
-          icon="chart"
-          tone="ink"
-          link="/portfolio"
-          [loading]="d().summary.loading && !s"
-          [value]="cashFlow(s)"
-          [caption]="period(s)"
-          [unavailable]="target() === null ? 'Choose one portfolio' : 'Record income and expenses'"
-        />
-        <gz-kpi
-          label="Rental occupancy"
-          icon="home"
-          tone="amber"
-          link="/portfolio"
-          [loading]="d().occupancyExposure.loading && !o"
-          [value]="pct(o?.rentalOccupancyPercent)"
-          [caption]="o ? o.rentalHoldings + ' rental of ' + o.totalHoldings + ' holdings' : ''"
-          unavailable="Set occupancy on your holdings"
-        />
-      </div>
-      @if (cardError(); as error) {
-        <div class="insight danger section" role="alert">
-          {{ error }}
-          <button type="button" class="btn small" (click)="reload()">Retry</button>
+    </gz-heading>
+    @let v = shownValue();
+    @let o = shownOccupancy();
+    @let s = d().summary.value;
+    <section
+      gz-overview-section
+      #leadSection
+      [heading]="scopeLabel()"
+      [caption]="leadCaption()"
+      [busy]="d().valueEquityDebt.loading && !!v"
+    >
+      @if (page && page.content.length) {
+        <a actions class="ov-link" routerLink="/portfolio">Open Portfolio</a>
+      }
+      @if (d().portfolios.error) {
+        <div class="insight danger ov-alert" role="alert">
+          <span>Your portfolios could not load.</span>
+          <button type="button" class="btn small" (click)="leadSection.retried(); reload()">Retry</button>
         </div>
-      }
-      <div class="dash-grid section">
-        <div class="dash-main">
-          @if (noPortfolio()) {
-            <section class="panel dash-card">
-              <div class="empty-state">
-                <gz-icon name="brief" />
-                <p>Track what you own: value, equity, rent and expenses in one place.</p>
-                <a class="btn primary small" routerLink="/portfolio">Create a portfolio</a>
-              </div>
-            </section>
+      } @else if (noPortfolio()) {
+        <div class="ov-empty">
+          <p>The value, debt and equity of what you own will appear here.</p>
+          <a class="btn primary" routerLink="/portfolio">Create a portfolio</a>
+        </div>
+      } @else if (d().valueEquityDebt.error) {
+        <div class="insight danger ov-alert" role="alert">
+          <span>Value, debt and equity could not load.</span>
+          <button type="button" class="btn small" (click)="leadSection.retried(); reload()">Retry</button>
+        </div>
+      } @else if (!v) {
+        <dl class="kpi-row">
+          <div gz-kpi label="Value" [loading]="true"></div>
+          <div gz-kpi label="Debt" [loading]="true"></div>
+          <div gz-kpi label="Equity" [loading]="true"></div>
+        </dl>
+      } @else if (!v.totalHoldings) {
+        <div class="ov-empty">
+          <p>Add a holding to see its value, debt and equity here.</p>
+          <a class="btn primary" routerLink="/portfolio">Add a holding</a>
+        </div>
+      } @else {
+        <dl class="kpi-row">
+          <div
+            gz-kpi
+            label="Value"
+            [value]="amount(v.value)"
+            [coverage]="coverage(v.value, 'holdings valued')"
+            [caption]="complete(v.value, 'valued')"
+            unavailable="No holding has a ZentraValue estimate yet"
+          ></div>
+          <div
+            gz-kpi
+            label="Debt"
+            [value]="amount(v.debt)"
+            [coverage]="coverage(v.debt, 'holdings with a known balance')"
+            [caption]="complete(v.debt, 'with a known balance')"
+            unavailable="No loan balance is recorded yet"
+          ></div>
+          <div
+            gz-kpi
+            label="Equity"
+            [value]="amount(v.equity)"
+            [coverage]="coverage(v.equity, 'holdings with value and debt')"
+            [caption]="complete(v.equity, 'with value and debt')"
+            unavailable="Needs a value and a loan balance on the same holding"
+          ></div>
+        </dl>
+        <div class="iv-action">
+          @if (missingBalances(); as n) {
+            <p class="ov-text">
+              {{ countOf(n, 'holding') }} {{ n === 1 ? 'has' : 'have' }} no loan balance, so debt
+              and equity leave {{ n === 1 ? 'it' : 'them' }} out.
+            </p>
+            <a class="btn primary" routerLink="/portfolio">Add balances in Portfolio</a>
           } @else {
-            <section class="panel dash-card" aria-labelledby="card-value">
-              <div class="panelhead">
-                <div>
-                  <h3 id="card-value">Value, equity and debt</h3>
-                  <p class="smalltext muted">{{ scopeLabel() }} · by ownership share</p>
-                </div>
-                <a class="smalltext" routerLink="/portfolio">Manage holdings</a>
-              </div>
-              @if (d().valueEquityDebt.loading && !v) {
-                @for (i of [1, 2, 3]; track i) {
-                  <div class="row-skeleton"></div>
-                }
-              } @else if (v) {
-                <div class="flow">
-                  @for (m of metrics(); track m.key) {
-                    <div>
-                      <span class="smalltext muted">{{ m.label }}</span>
-                      <b [class.green]="m.key === 'equity'">{{ amount(m.metric) ?? '—' }}</b>
-                      <span class="smalltext muted">
-                        {{
-                          m.percent === null
-                            ? 'No holdings'
-                            : (m.percent | number: '1.0-0') + '% covered'
-                        }}
-                      </span>
-                    </div>
-                  }
-                </div>
-                <p class="sourcedata">
-                  @if (v.newestValuationDate) {
-                    Valuations {{ range(v.oldestValuationDate, v.newestValuationDate) }} ·
-                  }
-                  @if (v.newestBalanceDate) {
-                    loan balances {{ range(v.oldestBalanceDate, v.newestBalanceDate) }} ·
-                  }
-                  {{ label(v.debtSource) }}. {{ v.note }}
-                </p>
-              }
-            </section>
-            <section class="panel dash-card" aria-labelledby="card-performance">
-              <div class="panelhead">
-                <div>
-                  <h3 id="card-performance">Income and expenses</h3>
-                  @if (s) {
-                    <p class="smalltext muted">
-                      {{ s.portfolioName }} · {{ s.fromDate | date: 'MMM d, y' }} –
-                      {{ s.toDate | date: 'MMM d, y' }}
-                    </p>
-                  }
-                </div>
-              </div>
-              @if (target() === null) {
-                <div class="empty-state">
-                  <gz-icon name="chart" />
-                  <p>Recorded income and expenses are kept per portfolio. Choose one above.</p>
-                </div>
-              } @else if (d().summary.loading && !s) {
-                @for (i of [1, 2, 3, 4]; track i) {
-                  <div class="row-skeleton"></div>
-                }
-              } @else if (s?.financials; as f) {
-                <div class="flow">
-                  <div>
-                    <span class="smalltext muted">Income</span>
-                    <b class="green">{{ money(f.income) }}</b>
-                  </div>
-                  <div>
-                    <span class="smalltext muted">Expenses</span>
-                    <b>{{ money(f.expenses) }}</b>
-                  </div>
-                  <div>
-                    <span class="smalltext muted">Cash flow</span>
-                    <b [class.green]="f.cashFlow > 0" [class.amber]="f.cashFlow < 0">{{
-                      signed(f.cashFlow)
-                    }}</b>
-                  </div>
-                </div>
-                @if (categories(s!).length) {
-                  <ul class="mix" aria-label="Income and expenses by category">
-                    @for (c of categories(s!); track c.category) {
-                      <li [class.income]="c.type === 'INCOME'">
-                        <span>{{ category(c.category) }}</span>
-                        <span class="mix-track"
-                          ><span class="mix-fill" [style.width.%]="c.share"></span
-                        ></span>
-                        <b>{{ money(c.amount) }}</b>
-                      </li>
-                    }
-                  </ul>
-                } @else {
-                  <p class="sub">No income or expenses recorded in this period.</p>
-                }
-                <p class="sourcedata">
-                  {{ f.recordCount }} records across {{ f.holdingsWithRecords }} of
-                  {{ f.totalHoldings }} holdings · {{ f.basis }}
-                </p>
-              } @else if (s) {
-                <p class="sub">Income and expenses are not available for this portfolio.</p>
-              }
-            </section>
-            <section class="panel dash-card" aria-labelledby="card-exposure">
-              <div class="panelhead">
-                <div>
-                  <h3 id="card-exposure">Occupancy and exposure</h3>
-                  <p class="smalltext muted">{{ scopeLabel() }} · counted by holding</p>
-                </div>
-              </div>
-              @if (d().occupancyExposure.loading && !o) {
-                @for (i of [1, 2, 3, 4]; track i) {
-                  <div class="row-skeleton"></div>
-                }
-              } @else if (o && o.totalHoldings) {
-                <ul class="mix" aria-label="Holdings by occupancy">
-                  @for (row of occupancyRows(o); track row.key) {
-                    <li>
-                      <span>{{ row.label }}</span>
-                      <span class="mix-track"
-                        ><span class="mix-fill" [style.width.%]="row.share"></span
-                      ></span>
-                      <b>{{ row.count }}</b>
-                    </li>
-                  }
-                </ul>
-                @if (o.counties.length) {
-                  <h4 class="dash-subhead">By county</h4>
-                  <ul class="mix" aria-label="Holdings by county">
-                    @for (g of o.counties; track g.countyId ?? $index) {
-                      <li>
-                        <span>{{
-                          g.unknown ? 'Unknown county' : g.countyName + ', ' + (g.stateCode ?? '')
-                        }}</span>
-                        <span class="mix-track"
-                          ><span class="mix-fill ink" [style.width.%]="g.holdingPercent"></span
-                        ></span>
-                        <b>{{ g.holdingPercent | number: '1.0-0' }}%</b>
-                      </li>
-                    }
-                  </ul>
-                }
-                <p class="sourcedata">
-                  Occupancy known for {{ o.occupancyCoveragePercent ?? 0 | number: '1.0-0' }}% and
-                  location for {{ o.geographyCoveragePercent ?? 0 | number: '1.0-0' }}% of holdings,
-                  as reported by you · as of {{ o.asOfDate | date: 'mediumDate' }}
-                </p>
-              } @else if (o) {
-                <p class="sub">Add holdings to see where they are and how they are used.</p>
-              }
-            </section>
+            <!-- Covered debt is a loan balance or a cash purchase (debt 0), not always a loan. -->
+            <p class="ov-text">Every holding has a loan balance or is recorded as bought with cash.</p>
+            <a class="btn primary" routerLink="/portfolio">Add a holding</a>
           }
         </div>
-        <div class="dash-side">
-          <gz-top-opportunities [size]="4" />
-          <gz-affordability-card />
-          <gz-recent-activity />
-        </div>
+        <p class="ov-note">{{ sources() }} {{ plainNote(v.note) }}</p>
+      }
+    </section>
+    @if (page && page.content.length && !d().portfolios.error) {
+      <div class="ov-cols">
+        <section
+          gz-overview-section
+          #occupancySection
+          heading="Occupancy"
+          [caption]="occupancyCaption()"
+          [busy]="d().occupancyExposure.loading && !!o"
+        >
+          @if (d().occupancyExposure.error) {
+            <div class="insight danger ov-alert" role="alert">
+              <span>Occupancy could not load.</span>
+              <button type="button" class="btn small" (click)="occupancySection.retried(); reload()">
+                Retry
+              </button>
+            </div>
+          } @else if (!o) {
+            @for (i of skeleton; track i) {
+              <div class="row-skeleton" aria-hidden="true"></div>
+            }
+          } @else if (!o.totalHoldings) {
+            <p class="ov-text">How your holdings are used will appear here once you add one.</p>
+          } @else {
+            <dl class="kpi-row">
+              <div
+                gz-kpi
+                label="Rental occupancy"
+                [value]="pct(o.rentalOccupancyPercent)"
+                [caption]="rentedCaption(o)"
+                unavailable="No rented or vacant holding is recorded"
+              ></div>
+            </dl>
+            <table gz-table class="ov-table iv-occ" sticky="none">
+              <caption class="sr-only">Holdings by occupancy</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Occupancy</th>
+                  <th scope="col" class="num">Holdings</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of occupancyRows(o); track row.key) {
+                  <tr>
+                    <td [class.muted]="row.key === 'UNKNOWN'">
+                      {{ row.label }}
+                      <span class="iv-bar" aria-hidden="true"><i [style.width.%]="row.share"></i></span>
+                    </td>
+                    <td class="num">{{ row.count }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <p class="ov-note">
+              Each bar is drawn against all {{ countOf(o.totalHoldings, 'holding') }}. Occupancy is
+              recorded for {{ o.knownOccupancyHoldings }} of them; rental occupancy counts rented and
+              vacant holdings only.
+            </p>
+            @if (o.counties.length) {
+              <h3 class="ov-sub">By county</h3>
+              <table gz-table class="ov-table" sticky="none">
+                <caption class="sr-only">Holdings by county</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">County</th>
+                    <th scope="col" class="num">Holdings</th>
+                    <th scope="col" class="num">Share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- A string key for the row without a county, so it can't equal a county id. -->
+                  @for (g of o.counties; track g.countyId ?? 'none-' + $index) {
+                    <tr>
+                      <td [class.muted]="g.unknown">
+                        {{ g.unknown ? 'County not recorded' : joinParts(', ', g.countyName, g.stateCode) }}
+                      </td>
+                      <td class="num">{{ g.holdingCount }}</td>
+                      <td class="num">{{ percentText(g.holdingPercent) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <p class="ov-note">Counted by holding, not weighted by value.</p>
+            }
+          }
+        </section>
+        <section
+          gz-overview-section
+          #cashSection
+          heading="Cash flow"
+          [caption]="cashCaption()"
+          [busy]="d().summary.loading && !!s"
+        >
+          @if (target() === null) {
+            <p class="ov-text">
+              Income and expenses are recorded per portfolio. Choose one portfolio above to see its
+              cash flow.
+            </p>
+          } @else if (d().summary.error) {
+            <div class="insight danger ov-alert" role="alert">
+              <span>Cash flow could not load.</span>
+              <button type="button" class="btn small" (click)="cashSection.retried(); reloadSummary()">
+                Retry
+              </button>
+            </div>
+          } @else if (!s) {
+            @for (i of skeleton; track i) {
+              <div class="row-skeleton" aria-hidden="true"></div>
+            }
+          } @else if (!s.financials) {
+            <div class="insight danger ov-alert" role="alert">
+              <span>Income and expenses were not returned for {{ s.portfolioName }}.</span>
+              <button type="button" class="btn small" (click)="cashSection.retried(); reloadSummary()">
+                Retry
+              </button>
+            </div>
+          } @else if (!s.financials.recordCount) {
+            <div class="ov-empty">
+              <p>
+                Income and expenses you record for {{ s.portfolioName }} will appear here, by
+                category.
+              </p>
+              <a class="btn" routerLink="/portfolio">Record income or an expense</a>
+            </div>
+          } @else {
+            @let f = s.financials;
+            <dl class="kpi-row">
+              <div gz-kpi label="Income" [value]="money(f.income)"></div>
+              <div gz-kpi label="Expenses" [value]="money(f.expenses)"></div>
+              <div
+                gz-kpi
+                label="Net cash flow"
+                [value]="signedCompact(f.cashFlow)"
+                [coverage]="cashCoverage()"
+              ></div>
+            </dl>
+            <table gz-table class="ov-table iv-cats" sticky="none">
+              <caption class="sr-only">Income and expenses by category</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col" data-priority="2">Type</th>
+                  <th scope="col" class="num" data-priority="2">Records</th>
+                  <th scope="col" class="num">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (c of categories(f.categories); track c.category) {
+                  <tr>
+                    <td>
+                      {{ category(c.category) }}
+                      <span class="cell-sub m-only">{{ c.type === 'INCOME' ? 'Income' : 'Expense' }}</span>
+                    </td>
+                    <td data-priority="2">{{ c.type === 'INCOME' ? 'Income' : 'Expense' }}</td>
+                    <td class="num" data-priority="2">{{ c.recordCount }}</td>
+                    <td class="num" [class.positive]="c.type === 'INCOME'" [class.negative]="c.type !== 'INCOME'">
+                      {{ signedFull(c) }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            @if (plainNote(f.note); as note) {
+              <p class="ov-note">{{ note }}</p>
+            }
+          }
+        </section>
       </div>
-    }
-    <gz-dashboard-overview [compact]="false" />`,
+    }`,
+  styles: [
+    OVERVIEW_STYLES,
+    `
+      .ov-scope {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-8);
+        font-size: var(--fs-cell);
+        color: var(--ink-2);
+      }
+      .ov-scope select {
+        min-width: 240px;
+      }
+      .iv-action {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--sp-12) var(--sp-16);
+        margin-top: var(--sp-16);
+      }
+      .ov-cols .kpi-row {
+        margin-bottom: var(--sp-12);
+      }
+      .iv-bar {
+        display: block;
+        max-width: 240px;
+        height: 6px;
+        margin-top: 4px;
+      }
+      .iv-bar i {
+        display: block;
+        height: 100%;
+        background: var(--ink);
+        border-radius: 0 2px 2px 0;
+      }
+      @media (max-width: 700px) {
+        .ov-scope {
+          width: 100%;
+        }
+        .ov-scope select {
+          flex: 1;
+          min-width: 0;
+        }
+      }
+    `,
+  ],
 })
 export class InvestorDashboard {
-  w = inject(Workspace);
-  d = this.w.store.selectSignal(selectInvestorDashboard);
-  target = this.w.store.selectSignal(selectSummaryTarget);
-  signedIn = computed(() => this.w.auth.isLoggedIn() && !!this.w.account().profile);
-  noPortfolio = computed(() => this.d().portfolios.value?.content.length === 0);
-  label = labelFor;
-  cardError = computed(() => {
+  readonly w = inject(Workspace);
+  /** Backend notes without developer field names (DESIGN.md §13). */
+  readonly plainNote = plainNote;
+  readonly d = this.w.store.selectSignal(selectInvestorDashboard);
+  readonly target = this.w.store.selectSignal(selectSummaryTarget);
+  readonly skeleton = [0, 1, 2];
+  readonly countOf = countOf;
+  readonly joinParts = joinParts;
+  readonly noPortfolio = computed(() => this.d().portfolios.value?.content.length === 0);
+  /** The all-portfolios holding count, as the card for that scope sends it (never summed here). */
+  readonly allHoldingsText = computed(() => {
+    const v = this.d().valueEquityDebt.value;
+    return v && v.portfolioId === null ? ' · ' + countOf(v.totalHoldings, 'holding') : '';
+  });
+  readonly scopeLabel = computed(() => {
     const s = this.d();
-    return (
-      s.portfolios.error ?? s.valueEquityDebt.error ?? s.occupancyExposure.error ?? s.summary.error
+    const list = s.portfolios.value?.content ?? [];
+    if (s.portfolioId === null)
+      return list.length === 1 ? list[0].name : list.length ? 'All portfolios' : 'Portfolio';
+    return list.find((p) => p.id === s.portfolioId)?.name ?? 'Portfolio';
+  });
+  /**
+   * The cards answer for the scope they were asked for. When the list drops a portfolio deleted
+   * elsewhere, the slice moves the scope to all portfolios but nothing asks again, so a card of
+   * another scope is never shown (the section waits) and the component asks for the scope in view.
+   */
+  readonly shownValue = computed(() => {
+    const v = this.d().valueEquityDebt.value;
+    return v && v.portfolioId === this.d().portfolioId ? v : null;
+  });
+  readonly shownOccupancy = computed(() => {
+    const o = this.d().occupancyExposure.value;
+    return o && o.portfolioId === this.d().portfolioId ? o : null;
+  });
+  readonly leadCaption = computed(() => {
+    const v = this.shownValue();
+    if (!v || !v.totalHoldings || this.d().valueEquityDebt.error) return '';
+    return joinParts(
+      ' · ',
+      countOf(v.totalHoldings, 'holding'),
+      'by ownership share',
+      formatRecordDate(v.asOfDate) ? 'as of ' + formatRecordDate(v.asOfDate) : null,
     );
   });
-  scopeLabel = computed(() => {
-    const s = this.d();
-    if (s.portfolioId === null) {
-      const n = s.portfolios.value?.content.length ?? 0;
-      return n === 1 ? s.portfolios.value!.content[0].name : 'All portfolios';
-    }
-    return s.portfolios.value?.content.find((p) => p.id === s.portfolioId)?.name ?? 'Portfolio';
+  /** Holdings the debt metric could not cover: financed without a balance, or financing unknown. */
+  readonly missingBalances = computed(() => {
+    const debt = this.shownValue()?.debt;
+    return debt ? Math.max(0, debt.totalHoldings - debt.coveredHoldings) : 0;
   });
-  metrics = computed(() => {
-    const v = this.d().valueEquityDebt.value;
-    if (!v) return [];
-    return [
-      { key: 'value', label: 'Value', metric: v.value, percent: v.valueCoveragePercent },
-      { key: 'debt', label: 'Debt', metric: v.debt, percent: v.debtCoveragePercent },
-      { key: 'equity', label: 'Equity', metric: v.equity, percent: v.equityCoveragePercent },
-    ];
+  readonly sources = computed(() => {
+    const v = this.shownValue();
+    if (!v) return '';
+    const estimates = this.range(v.oldestValuationDate, v.newestValuationDate);
+    const balances = this.range(v.oldestBalanceDate, v.newestBalanceDate);
+    const who = v.debtSource === 'OWNER_REPORTED_FINANCING' ? 'as you reported them' : labelFor(v.debtSource);
+    return joinParts(
+      ' ',
+      estimates ? `ZentraValue estimates of ${estimates};` : null,
+      balances ? `loan balances ${who}, dated ${balances}.` : `Loan balances ${who}.`,
+    );
   });
+  readonly occupancyCaption = computed(() => {
+    const o = this.shownOccupancy();
+    return o && o.totalHoldings && !this.d().occupancyExposure.error
+      ? `${countOf(o.totalHoldings, 'holding')}, as you reported them`
+      : '';
+  });
+  readonly cashCaption = computed(() => {
+    const s = this.d().summary.value;
+    const f = s?.financials;
+    if (this.target() === null || !s || !f || this.d().summary.error) return '';
+    return joinParts(
+      ' · ',
+      s.portfolioName,
+      this.range(f.fromDate, f.toDate),
+      labelFor(f.basis),
+      f.recordCount ? countOf(f.recordCount, 'record') : null,
+    );
+  });
+
+  /** Cash flow is complete by definition (recorded amounts): coverage without the Partial label. */
+  readonly cashCoverage = computed<KpiCoverage | null>(() => {
+    const f = this.d().summary.value?.financials;
+    return f
+      ? { covered: f.holdingsWithRecords, total: f.totalHoldings, noun: 'holdings', partial: false, lead: 'From records on' }
+      : null;
+  });
+
+  /** A boolean, so the cards load once when the account arrives, not on every account change. */
+  private readonly signedIn = computed(() => this.w.auth.isLoggedIn() && !!this.w.account().profile);
+  /** The scope the cards were last asked for (undefined before the first load). */
+  private askedFor: number | null | undefined;
   constructor() {
     effect(() => {
       if (this.signedIn()) untracked(() => this.reload());
     });
+    // The list moved the scope (a portfolio deleted elsewhere): ask for the scope now in view, with
+    // the existing scope action (PROGRESS.md, needs store work).
+    effect(() => {
+      const s = this.d();
+      if (this.askedFor === undefined || !s.portfolios.value || s.portfolios.loading) return;
+      if (s.portfolioId !== this.askedFor)
+        untracked(() => {
+          this.askedFor = s.portfolioId;
+          this.w.store.dispatch(A.selectScope({ portfolioId: s.portfolioId }));
+        });
+    });
   }
   reload() {
+    this.askedFor = this.d().portfolioId;
     this.w.store.dispatch(A.load());
+  }
+  reloadSummary() {
+    const id = this.target();
+    if (id !== null) this.w.store.dispatch(A.loadSummary({ portfolioId: id }));
   }
   /** The select gives "" for all portfolios. */
   select(value: string) {
-    this.w.store.dispatch(A.selectScope({ portfolioId: value === '' ? null : Number(value) }));
-  }
-  holdings(list: { holdingCount: number }[]) {
-    return list.reduce((n, p) => n + p.holdingCount, 0);
+    const portfolioId = value === '' ? null : Number(value);
+    this.askedFor = portfolioId;
+    this.w.store.dispatch(A.selectScope({ portfolioId }));
   }
   money(v: number | null | undefined) {
     return usdCompact(v);
   }
   /**
-   * A metric's total, or the partial sum when some holdings are not covered (the caption then
-   * says how many are). Null when nothing is known.
+   * A metric's total, or the partial sum when some holdings are not covered (its caption then says
+   * how many are). Null, so Unavailable, when nothing is known: never $0, never "Partial: 0 of 5".
    */
-  amount(m: PortfolioMetric | null | undefined) {
-    if (!m) return null;
+  amount(m: PortfolioMetric) {
     if (m.total !== null) return usdCompact(m.total);
     return m.coveredHoldings ? usdCompact(m.knownTotal) : null;
   }
-  coverage(m: PortfolioMetric | undefined, verb: string) {
-    if (!m) return '';
-    const partial = m.total === null && m.coveredHoldings ? 'Partial: ' : '';
-    return `${partial}${m.coveredHoldings} of ${m.totalHoldings} holdings ${verb}`;
+  coverage(m: PortfolioMetric, noun: string): KpiCoverage | null {
+    return m.total === null && m.coveredHoldings
+      ? { covered: m.coveredHoldings, total: m.totalHoldings, noun }
+      : null;
   }
-  asOf(date: string | null | undefined) {
-    return date ? ' · as of ' + date : '';
+  /** The caption of a complete figure: "2 of 2 holdings valued", without the Partial label. */
+  complete(m: PortfolioMetric, words: string) {
+    return m.total !== null ? `${m.coveredHoldings} of ${countOf(m.totalHoldings, 'holding')} ${words}` : '';
   }
   range(from: string | null, to: string | null) {
-    return from && from !== to ? `${from} to ${to}` : (to ?? '');
-  }
-  signed(v: number) {
-    const m = usdCompact(v);
-    return m && v > 0 ? '+' + m : m;
-  }
-  cashFlow(s: PortfolioSummaryDTO | null) {
-    return s?.financials ? this.signed(s.financials.cashFlow) : null;
+    const a = formatRecordDate(from);
+    const b = formatRecordDate(to);
+    if (!b) return '';
+    return a && a !== b ? `${a} to ${b}` : b;
   }
   pct(v: number | null | undefined) {
     return v === null || v === undefined ? null : Math.round(v) + '%';
   }
-  period(s: PortfolioSummaryDTO | null) {
-    return s?.financials ? `Recorded ${s.financials.fromDate} to ${s.financials.toDate}` : '';
+  rentedCaption(o: InvestorOccupancyExposureCardDTO) {
+    return o.rentalHoldings
+      ? `${o.occupancyCounts.RENTED ?? 0} of ${countOf(o.rentalHoldings, 'rental holding')} rented`
+      : '';
+  }
+  /** Each status against every holding in scope, so the bars add up to the whole. */
+  occupancyRows(o: InvestorOccupancyExposureCardDTO) {
+    const total = Math.max(1, o.totalHoldings);
+    return OCCUPANCY.map(([key, label]) => {
+      const count = o.occupancyCounts[key] ?? 0;
+      return { key, label, count, share: count ? Math.max(2, (count / total) * 100) : 0 };
+    });
+  }
+  /** A percent the backend sends: "60%", "<1%" for a sliver. */
+  percentText(v: number | null | undefined) {
+    if (v === null || v === undefined) return '';
+    return v > 0 && v < 1 ? '<1%' : Math.round(v) + '%';
+  }
+  signedCompact(v: number) {
+    const m = usdCompact(v);
+    return m && v > 0 ? '+' + m : m;
+  }
+  /** Income first, then expenses, each largest first. */
+  categories(list: Category[]) {
+    return [...list].sort(
+      (a, b) => (a.type === b.type ? b.amount - a.amount : a.type === 'INCOME' ? -1 : 1),
+    );
   }
   category(c: string) {
     return CATEGORY_LABELS[c] ?? labelFor(c);
   }
-  occupancyRows(o: InvestorOccupancyExposureCardDTO) {
-    const max = Math.max(1, ...OCCUPANCY.map(([k]) => o.occupancyCounts[k] ?? 0));
-    return OCCUPANCY.map(([key, label]) => {
-      const count = o.occupancyCounts[key] ?? 0;
-      return { key, label, count, share: count ? Math.max(2, (count / max) * 100) : 0 };
-    });
-  }
-  /** Categories largest first, each as a share of the larger of income or expenses. */
-  categories(s: PortfolioSummaryDTO) {
-    const f = s.financials;
-    if (!f) return [];
-    const scale = Math.max(1, f.income, f.expenses);
-    return [...f.categories]
-      .sort((a, b) => b.amount - a.amount)
-      .map((c) => ({ ...c, share: Math.max(2, (c.amount / scale) * 100) }));
+  /** Full money with a true sign: income +, expenses − (DESIGN.md §14). */
+  signedFull(c: Category) {
+    return (c.type === 'INCOME' ? '+' : '−') + usd.format(Math.abs(c.amount));
   }
 }

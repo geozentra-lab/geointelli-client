@@ -19,7 +19,7 @@ export type DashboardCardKey =
 export const DashboardActions = createActionGroup({
   source: 'Dashboard API',
   events: {
-    /** The user cards every persona shows: favorites, saved searches, alerts and activity. */
+    /** The user cards every account shows: favorites, saved searches, alerts and activity. */
     Load: emptyProps(),
     'Favorites loaded': props<{ card: FavoritesCard }>(),
     'Saved searches loaded': props<{ card: SavedSearchesCard }>(),

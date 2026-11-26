@@ -8,6 +8,7 @@ import {
   LenderCollateralAnalysisDTO,
   LenderImportRequest,
   LenderImportResult,
+  LenderMemberLookupDTO,
   LenderOrganizationDTO,
   LenderPipelineDTO,
 } from '../../core/models/lender';
@@ -36,7 +37,13 @@ export const LenderActions = createActionGroup({
     'Load members': emptyProps(),
     'Members loaded': props<{ members: number[] }>(),
     'Members failed': props<{ error: string }>(),
-    'Add member': props<{ userId: number }>(),
+    /** The owner finds a colleague by the email they sign in with, before giving access. */
+    'Look up member': props<{ email: string }>(),
+    'Member found': props<{ email: string; result: LenderMemberLookupDTO }>(),
+    'Member lookup failed': props<{ email: string; error: string }>(),
+    'Clear member lookup': emptyProps(),
+    /** `who` names the person in the confirmation (their name or email); the user ID otherwise. */
+    'Add member': props<{ userId: number; who?: string }>(),
     'Remove member': props<{ userId: number }>(),
     'Members changed': props<{ message: string }>(),
 

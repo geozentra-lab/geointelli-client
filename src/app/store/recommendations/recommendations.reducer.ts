@@ -13,6 +13,7 @@ export const recommendationsReducer = createReducer(
   on(A.load, (s, { limit }) => ({ ...s, limit, loading: true, error: null })),
   on(A.loaded, (s, { response }) => ({ ...s, response, loading: false })),
   on(A.failed, (s, { error }) => ({ ...s, error, loading: false })),
-  // Saved preferences drive the results; drop them so the next visit reloads.
-  on(UserActions.preferencesSaved, (s) => ({ ...s, response: null })),
+  // Saved preferences drive the results; drop them (and an error from the old ones) so the next
+  // visit reloads.
+  on(UserActions.preferencesSaved, (s) => ({ ...s, response: null, error: null })),
 );

@@ -53,9 +53,14 @@ describe('Lender API contract', () => {
     r.flush({});
   });
 
-  it('manages organization members by user ID', () => {
+  it('finds a member by email, then adds and removes them by user ID', () => {
+    service.lookupMember(4, 'Dana.Okafor@bayline.test').subscribe();
+    let r = http.expectOne((r) => r.url === api + '/organizations/4/members/lookup');
+    expect(r.request.method).toBe('GET');
+    expect(r.request.params.get('email')).toBe('Dana.Okafor@bayline.test');
+    r.flush({ userId: 12, email: 'dana.okafor@bayline.test', firstName: 'Dana', lastName: 'Okafor', member: false });
     service.addMember(4, 12).subscribe();
-    let r = http.expectOne(api + '/organizations/4/members');
+    r = http.expectOne(api + '/organizations/4/members');
     expect(r.request.method).toBe('POST');
     expect(r.request.body).toEqual({ userId: 12 });
     r.flush(null);

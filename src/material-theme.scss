@@ -1,40 +1,46 @@
-// Angular Material theme (used by dialogs). Typography follows the app's own font so Material
-// surfaces match the rest of the UI and no extra font family has to be downloaded.
+// Angular Material is used for dialogs only. No Material palette or type scale is compiled
+// (DESIGN.md §2): the few system colours a dialog reads are mapped onto the app's tokens in
+// styles.css, and the dialog's own type comes from the overrides below, so a dialog uses the same
+// ink, surface, copper, rules and DM Sans sizes as the rest of GeoZentra.
 @use '@angular/material' as mat;
 
 html {
-  height: 100%;
-  @include mat.theme(
-    (
-      color: (
-        primary: mat.$azure-palette,
-        tertiary: mat.$blue-palette,
-      ),
-      typography: 'DM Sans',
-      density: 0,
-    )
-  );
-  // Dialogs follow the app's own shapes and type instead of Material's defaults (28px corners,
-  // Material headline type), so a confirmation looks like the rest of GeoZentra.
+  --mat-sys-surface: var(--surface);
+  --mat-sys-on-surface: var(--ink);
+  --mat-sys-on-surface-variant: var(--ink-2);
+  --mat-sys-surface-container-lowest: var(--surface);
+  --mat-sys-surface-container-low: var(--surface);
+  --mat-sys-surface-container: var(--surface);
+  --mat-sys-surface-container-high: var(--surface);
+  --mat-sys-surface-container-highest: var(--surface);
+  --mat-sys-primary: var(--copper);
+  --mat-sys-on-primary: var(--surface);
+  --mat-sys-outline: var(--control);
+  --mat-sys-outline-variant: var(--rule);
+  --mat-sys-error: var(--negative);
+  --mat-sys-on-error: var(--surface);
+  --mat-sys-scrim: var(--ink-2);
+  --mat-sys-shadow: var(--ink);
+
+  // Dialogs follow the app's shapes and type: square corners, no shadow (the scrim separates
+  // them), a 20 px title and 14 px supporting text.
   @include mat.dialog-overrides(
     (
-      container-shape: 12px,
-      subhead-font: Manrope,
-      subhead-size: 20px,
-      subhead-weight: 700,
-      subhead-color: #172735,
-      supporting-text-font: 'DM Sans',
-      supporting-text-size: 14px,
-      supporting-text-color: #526773,
+      container-shape: 0,
+      container-color: var(--surface),
+      container-elevation-shadow: none,
+      subhead-font: var(--font),
+      subhead-size: var(--fs-title),
+      subhead-line-height: var(--lh-title),
+      subhead-weight: 600,
+      subhead-tracking: 0,
+      subhead-color: var(--ink),
+      supporting-text-font: var(--font),
+      supporting-text-size: var(--fs-body),
+      supporting-text-line-height: 1.5,
+      supporting-text-weight: 400,
+      supporting-text-tracking: 0,
+      supporting-text-color: var(--ink-2),
     )
   );
-}
-
-body {
-  color-scheme: light;
-  background-color: var(--mat-sys-surface);
-  color: var(--mat-sys-on-surface);
-  font: var(--mat-sys-body-medium);
-  margin: 0;
-  height: 100%;
 }

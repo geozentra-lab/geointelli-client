@@ -56,6 +56,17 @@ export interface LenderOrganizationDTO {
   name: string;
   ownerUserId: number;
 }
+/**
+ * The account an owner found by email to add to the team (GET .../members/lookup): `userId` goes
+ * into the add-member call; `member` is true when it is already the owner or a member.
+ */
+export interface LenderMemberLookupDTO {
+  userId: number;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  member: boolean;
+}
 export interface LenderApplicationDTO {
   id: number;
   organizationId: number;

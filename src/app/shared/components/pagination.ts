@@ -69,7 +69,9 @@ export class Pagination {
         const target = this.focusTarget();
         const element = target ?? this.status()?.nativeElement;
         element?.focus({ preventScroll: true });
-        if (target) target.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+        // A script's smooth scroll ignores the CSS reduced-motion rule: ask the setting itself.
+        const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (target) target.scrollIntoView?.({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
       });
     });
   }

@@ -30,8 +30,13 @@ export interface ValuationProjection {
 }
 export interface ValuationForecasts {
   oneYear?: ValuationProjection | null;
-  /** Three- and seven-year values are trend scenarios. */
+  /** Three- and five-year values are trend scenarios. */
   threeYears?: ValuationProjection | null;
+  fiveYears?: ValuationProjection | null;
+  /**
+   * The 7-year forecast the 5-year one replaced: only on valuations scored before the change, which
+   * then have no fiveYears. Shown as seven years, never as five.
+   */
   sevenYears?: ValuationProjection | null;
 }
 /** One model contribution. Factors overlap: their amounts must never be added up. */
@@ -99,8 +104,16 @@ export interface ValuationPoint {
   value: number;
   low: number | null;
   high: number | null;
-  /** Trend scenarios (3 and 7 years) are labelled as such. */
+  /** Trend scenarios (3 and 5 years; 7 on older valuations) are labelled as such. */
   scenario: boolean;
+}
+
+/**
+ * "five", or "seven" when the forecasts end at the 7-year value of a valuation scored before the
+ * 5-year forecast replaced it: for "Three- and five-year values are trend scenarios."
+ */
+export function longestScenarioWord(points: readonly { years: number }[]): 'five' | 'seven' {
+  return points.some((p) => p.years === 7) && !points.some((p) => p.years === 5) ? 'seven' : 'five';
 }
 
 /** Year 0 (the estimate) and each forecast that has a value, in order. */
@@ -120,7 +133,9 @@ export function valuationPoints(v: PropertyValuation | null | undefined): Valuat
   const horizons: [number, string, ValuationProjection | null | undefined, boolean][] = [
     [1, 'In 1 year', v?.forecasts?.oneYear, false],
     [3, 'In 3 years', v?.forecasts?.threeYears, true],
-    [7, 'In 7 years', v?.forecasts?.sevenYears, true],
+    [5, 'In 5 years', v?.forecasts?.fiveYears, true],
+    // Only on a valuation scored before the 5-year forecast replaced it (no 5-year value then).
+    [7, 'In 7 years', amount(v?.forecasts?.fiveYears?.value) === null ? v?.forecasts?.sevenYears : null, true],
   ];
   for (const [years, label, f, scenario] of horizons) {
     const value = amount(f?.value);

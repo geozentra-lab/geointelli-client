@@ -6,8 +6,13 @@ import { Store } from '@ngrx/store';
 import { provideTestStore } from '../../store';
 import { ValuationActions as V } from '../../store/valuation/valuation.actions';
 import { selectValuationDetail } from '../../store/valuation/valuation.selectors';
-import { PropertyValuation, valuationPoints } from '../../core/models/property-valuation';
-import { PropertyValuationView, valuationChart } from './property-valuation';
+import {
+  PropertyValuation,
+  ValuationHistoryEntry,
+  valuationPoints,
+} from '../../core/models/property-valuation';
+import { PropertyValuationView } from './property-valuation';
+import { forecastSeries, historySeries } from './valuation-series';
 
 /** Trimmed from the local response for property 301400. */
 const supported: PropertyValuation = {
@@ -22,7 +27,7 @@ const supported: PropertyValuation = {
   forecasts: {
     oneYear: { value: 617015.32, low: 281975.91, high: 1350143.4 },
     threeYears: { value: 662355.78, low: 201327.52, high: 2179111.84 },
-    sevenYears: { value: 763276.88, low: 165474.47, high: 3520733.94 },
+    fiveYears: { value: 721840.5, low: 182310.4, high: 2862024.1 },
   },
   explanation: {
     baseline: 755227,
@@ -79,7 +84,7 @@ const supported: PropertyValuation = {
     createdAt: '2026-11-08T20:24:20.015242',
   },
   reproducibility: { runId: '2026-11-08-6c55c6e4', inputHash: '6feae3b69b51d079' },
-  notes: ['Three- and seven-year forecasts are trend scenarios; forecast ranges are illustrative.'],
+  notes: ['Three- and five-year forecasts are trend scenarios; forecast ranges are illustrative.'],
 };
 
 function render(valuation: PropertyValuation) {
@@ -92,36 +97,85 @@ function render(valuation: PropertyValuation) {
 describe('Property valuation', () => {
   beforeEach(() => TestBed.configureTestingModule({ providers: [provideRouter([])] }));
 
-  it('plots year 0 and each forecast, and bands only between bounded points', () => {
+  it('places each forecast at its true date, with bounds only when both ends are known', () => {
     const points = valuationPoints(supported);
     expect(points.map((p) => [p.years, p.value, p.scenario])).toEqual([
       [0, 671182.72, false],
       [1, 617015.32, false],
       [3, 662355.78, true],
-      [7, 763276.88, true],
+      [5, 721840.5, true],
     ]);
-    const chart = valuationChart(points)!;
-    expect(chart.bands.length).toBe(3);
-    expect(chart.segments.map((s) => s.scenario)).toEqual([false, true, true]);
+    const series = forecastSeries(supported);
+    // Years count from the estimate date (Nov 8, 2026), so 1, 3 and 5 years are spaced by time.
+    expect(series.map((p) => p.date.toISOString().slice(0, 10))).toEqual([
+      '2027-11-08',
+      '2029-11-08',
+      '2031-11-08',
+    ]);
+    expect(series[0]).toMatchObject({ value: 617015.32, low: 281975.91, high: 1350143.4 });
 
-    // A forecast without bounds keeps its point but loses the bands that touch it.
-    const partial = valuationPoints({
+    // A forecast without bounds keeps its point but adds nothing to the fan.
+    const partial = forecastSeries({
       ...supported,
       forecasts: { ...supported.forecasts, threeYears: { value: 662355.78 } },
     });
-    expect(valuationChart(partial)!.bands.length).toBe(1);
-    // Without ranges the scale follows the values alone.
-    const plain = valuationChart(points, false)!;
-    expect(plain.bands.length).toBe(0);
-    expect(plain.yTicks[3].label).toBe('$775K');
+    expect(partial[1]).toMatchObject({ value: 662355.78, low: null, high: null });
+    // Hiding the illustrative ranges drops every bound, so the scale follows the values alone.
+    expect(forecastSeries(supported, false).every((p) => p.low === null && p.high === null)).toBe(
+      true,
+    );
+    // Without an estimate date the forecasts can't be placed, so nothing is drawn.
+    expect(forecastSeries({ ...supported, method: { ...supported.method, predictionDate: null } })).toEqual(
+      [],
+    );
+  });
+
+  it('shows 5 years; a valuation scored before the change keeps its 7 years, never called 5', () => {
+    const el = render(supported);
+    expect(el.textContent).toContain('Three- and five-year values are trend scenarios.');
+    expect(el.textContent).toContain('In 5 years');
+    expect(el.textContent).not.toContain('7 years');
+
+    const older: PropertyValuation = {
+      ...supported,
+      forecasts: { ...supported.forecasts, fiveYears: undefined, sevenYears: { value: 763276.88, low: 165474.47, high: 3520733.94 } },
+    };
+    expect(valuationPoints(older).map((p) => p.years)).toEqual([0, 1, 3, 7]);
+    expect(forecastSeries(older).at(-1)!.date.toISOString().slice(0, 10)).toBe('2033-11-08');
+    const oldEl = render(older);
+    expect(oldEl.textContent).toContain('Three- and seven-year values are trend scenarios.');
+    expect(oldEl.textContent).toContain('In 7 years');
+    expect(oldEl.textContent).not.toContain('5 years');
+
+    // Both sent (not expected): the 5-year value wins and the 7-year one is left out.
+    const both = { ...supported, forecasts: { ...supported.forecasts, sevenYears: { value: 763276.88 } } };
+    expect(valuationPoints(both).map((p) => p.years)).toEqual([0, 1, 3, 5]);
+  });
+
+  it('draws the monthly ZentraValue from published versions with an estimate only', () => {
+    const entry = (id: number, date: string, valuation: PropertyValuation) =>
+      ({ id, valuation: { ...valuation, method: { predictionDate: date } } }) as ValuationHistoryEntry;
+    const { line, band } = historySeries([
+      entry(3, '2026-11-01', supported),
+      entry(2, '2026-11-01', { ...supported, estimate: { value: 1 } }),
+      entry(1, '2026-10-01', { ...supported, estimate: { value: 650000 } }),
+      entry(0, '2026-09-01', { status: 'unsupported' }),
+    ]);
+    // Oldest first; the newest version wins a shared date; unsupported versions are left out.
+    expect(line.map((p) => [p.date.toISOString().slice(0, 10), p.value])).toEqual([
+      ['2026-10-01', 650000],
+      ['2026-11-01', 671182.72],
+    ]);
+    // A version without both range ends stays on the line but adds no band point.
+    expect(band.map((b) => b.date.toISOString().slice(0, 10))).toEqual(['2026-11-01']);
   });
 
   it('treats missing forecasts as unavailable, never zero', () => {
     const points = valuationPoints({
       ...supported,
-      forecasts: { oneYear: { value: null }, sevenYears: { value: 763276.88 } },
+      forecasts: { oneYear: { value: null }, fiveYears: { value: 721840.5 } },
     });
-    expect(points.map((p) => p.years)).toEqual([0, 7]);
+    expect(points.map((p) => p.years)).toEqual([0, 5]);
     const el = render({ ...supported, forecasts: undefined });
     expect(el.textContent).toContain('Forecasts are not available for this property.');
     expect(el.querySelector('svg')).toBeNull();
@@ -131,32 +185,50 @@ describe('Property valuation', () => {
   it('shows a supported estimate, explanation, evidence and method as sent', () => {
     const text = render(supported).textContent!.replace(/\s+/g, ' ');
     expect(text).toContain('$671,183');
-    expect(text).toContain('$551,940 – $816,186');
+    expect(text).toContain('$551,940 to $816,186 80% range');
     expect(text).toContain('High confidence');
-    expect(text).toContain('Years after Nov 8, 2026');
+    expect(text).toContain('Forecast years count from the estimate date');
     expect(text).toContain('Trend scenario');
-    expect(text).toContain('Illustrative range $281,976 – $1,350,143');
+    expect(text).toContain('$281,976 to $1,350,143 Illustrative');
+    expect(text).toContain("The estimate's 90% range is $499,245 to $902,335");
+    // The fan is named as illustrative in the legend, apart from any 80% range.
+    expect(text).toContain('Forecast range, illustrative');
     expect(text).toContain('Sale history');
     expect(text).toContain('+13% · +$77,037');
+    expect(text).toContain('−7.7% · −$55,655');
     expect(text).toContain('not meant to be added together');
-    expect(text).toContain('Supporting evidence: comparable sales');
+    expect(text).toContain('Supporting comparable sales');
     expect(text).toContain('630 E 14 ST');
-    expect(text).toMatch(/Latest sale in model data\s*Jul 26, 2026/);
-    expect(text).toContain('Run 2026-11-08-6c55c6e4');
-    expect(text).not.toContain('Limited valuation');
+    // Model details sit in the Method disclosure, never in the running text.
+    const method = render(supported).querySelector('details.method')!;
+    expect(method.querySelector('summary')!.textContent).toContain('Method');
+    expect(method.textContent).toMatch(/Latest sale in model data\s*Jul 26/);
+    expect(method.textContent).toMatch(/Run\s*2026-11-08-6c55c6e4/);
+    expect(method.textContent).toContain('v17+v18');
+    expect(text).not.toContain('Limited estimate');
   });
 
-  it('keeps a limited caution at the top and beside the graph', () => {
+  it('marks a supported estimate that arrives without a value', () => {
+    const el = render({ ...supported, estimate: { ...supported.estimate, value: null } });
+    const cell = el.querySelector('.forecast-table tbody tr td:nth-child(2)')!;
+    expect(cell.classList).toContain('na');
+    expect(cell.textContent).toContain('Unavailable');
+    expect(el.textContent).not.toContain('$0');
+  });
+
+  it('keeps the limited caution beside the graph', () => {
     const el = render({
       ...supported,
       status: 'limited',
       reasons: [{ code: 'no_sale_history', message: 'No recorded sale.' }],
       evidence: { ...supported.evidence, lastSale: { hasSaleHistory: false } },
     });
+    // The aside's ZentraValue block lists the reasons too; here they sit right above the chart.
     const cautions = el.querySelectorAll('.caution');
-    expect(cautions.length).toBe(2);
-    expect(cautions[1].textContent).toContain('No recorded sale.');
-    expect(cautions[1].nextElementSibling?.tagName.toLowerCase()).toBe('svg');
+    expect(cautions.length).toBe(1);
+    expect(cautions[0].textContent).toContain('Limited estimate: No recorded sale.');
+    expect(cautions[0].nextElementSibling?.tagName.toLowerCase()).toBe('gz-time-chart');
+    expect(el.querySelector('gz-time-chart svg')).toBeTruthy();
     expect(el.textContent).toContain('$671,183');
   });
 

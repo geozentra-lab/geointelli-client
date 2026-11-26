@@ -4,6 +4,7 @@ import Keycloak from 'keycloak-js';
 import { environment } from '../../../environments/environment';
 import { Store } from '@ngrx/store';
 import { UserActions } from '../../store/user/user.actions';
+import { AccountActions } from '../../store/account/account.actions';
 
 /**
  * Marks that this browser had a signed-in session, so start-up only checks Keycloak when there
@@ -81,24 +82,24 @@ export class KeycloakService {
     this.keycloak.onTokenExpired = () => {
       void this.updateToken(-1);
     };
-    // Checking for an existing session used to send the whole page to Keycloak and back on every
-    // visit, so the app loaded twice. Now:
+    // Roles and features come from the token: every new token means the entitlements are read again.
+    this.keycloak.onAuthRefreshSuccess = () => this.store.dispatch(AccountActions.tokenRefreshed());
+    // Restoring a session:
     // - no sign-in remembered in this browser (guests): no check at all, one load. The adapter
     //   still completes a login callback, because it parses the URL whatever onLoad says.
-    // - a remembered sign-in: check in a hidden iframe without reloading. If the browser blocks
-    //   third-party cookies the adapter falls back to the full-page check (silentCheckSsoFallback).
+    // - a remembered sign-in: a full-page check at Keycloak (prompt=none) and back.
+    // No silent iframe check: Keycloak is on another site over plain HTTP, so its session cookie
+    // never reaches an iframe and the adapter always fell back to the full-page check anyway. Its
+    // third-party-cookie probe ran first, before the login callback was read, and took up to 10 s
+    // in Edge; past the adapter's 10 s limit init failed, the callback was lost and every sign-in
+    // came back signed out.
     const remembered = readSessionHint();
     this.initialization = this.reachable()
       .then((up) => {
         this.unavailable = !up;
         if (!up) return false;
         return this.keycloak.init({
-          ...(remembered
-            ? {
-                onLoad: 'check-sso' as const,
-                silentCheckSsoRedirectUri: `${window.location.origin}/assets/silent-check-sso.html`,
-              }
-            : {}),
+          ...(remembered ? { onLoad: 'check-sso' as const } : {}),
           flow: 'standard',
           pkceMethod: 'S256',
           checkLoginIframe: false,
@@ -112,12 +113,22 @@ export class KeycloakService {
         }
         return authenticated;
       })
-      .catch(() => false);
+      .catch(() => {
+        // A failed start (cancelled sign-in, failed token exchange) must not repeat the same way
+        // on every load: forget the hint, so the next start is the plain one that reads a callback.
+        writeSessionHint(false);
+        return false;
+      });
     return this.initialization;
   }
   login(): Promise<void> {
     if (this.unavailable) return Promise.reject(new Error('Identity server unreachable'));
     return this.keycloak.login();
+  }
+  /** Opens the identity server's account registration page. */
+  register(): Promise<void> {
+    if (this.unavailable) return Promise.reject(new Error('Identity server unreachable'));
+    return this.keycloak.register();
   }
   logout(): Promise<void> {
     this.sessionEnded();
@@ -153,6 +164,15 @@ export class KeycloakService {
         this.refreshInFlight = null;
       });
     return this.refreshInFlight;
+  }
+  /**
+   * A new token now, even if the current one is still valid (updateToken(-1)): after an admin
+   * approves a role, only a new token carries it. Waits for a refresh already under way first, which
+   * may not have been a forced one.
+   */
+  async refreshNow(): Promise<boolean> {
+    if (this.refreshInFlight) await this.refreshInFlight.catch(() => false);
+    return this.updateToken(-1);
   }
   async getValidToken(): Promise<string | undefined> {
     if (!this.isLoggedIn()) return undefined;

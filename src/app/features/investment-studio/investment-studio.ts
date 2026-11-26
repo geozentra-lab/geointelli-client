@@ -1,58 +1,149 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { CurrencyPipe } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Component, computed, effect, inject, linkedSignal, untracked } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { AffordabilityCalculator } from './affordability-calculator';
+import { MortgageCalculator } from './mortgage-calculator';
 import { RentalAnalysis } from './rental-analysis';
 import { CatalogActions } from '../../store/catalog/catalog.actions';
 import { PageHeading } from '../../shared/components/page-heading';
-import { RequestStatus } from '../../shared/components/request-status';
 import { Workspace } from '../../shared/data/workspace';
-import { MortgageActions as A } from '../../store/mortgage/mortgage.actions';
-import { selectMortgage } from '../../store/mortgage/mortgage.selectors';
+import { formatFolio, placeLine } from '../../shared/data/format';
+
 type StudioMode = 'mortgage' | 'affordability' | 'rental';
 const modeFrom = (value: string | null): StudioMode =>
   value === 'affordability' || value === 'rental' ? value : 'mortgage';
+
+/**
+ * The investment studio, a reading page (DESIGN.md §5 Record): three calculators on the user's own
+ * figures, as tabs kept in the address (?mode=affordability, ?mode=rental). Each puts the
+ * assumptions beside the result. Opened from a property (/investment-studio/:id, "Open in Studio"),
+ * it names that property and links back; its figures are never filled in from the record.
+ */
 @Component({
-  imports: [
-    FormsModule,
-    CurrencyPipe,
-    RouterLink,
-    PageHeading,
-    RequestStatus,
-    AffordabilityCalculator,
-    RentalAnalysis,
-  ],
-  templateUrl: './investment-studio.html',
+  imports: [RouterLink, PageHeading, AffordabilityCalculator, MortgageCalculator, RentalAnalysis],
+  template: `
+    <gz-heading
+      title="Investment studio"
+      subtitle="Monthly payments, what you can afford and rental returns, worked out on your own figures."
+    />
+    @if (propertyId(); as id) {
+      @if (w.catalog().detail?.id === id && w.catalog().detail; as p) {
+        <p class="studio-for">
+          For <a [routerLink]="['/property', id]">{{ p.address?.address || 'Folio ' + folio(p.folio) }}</a
+          >{{ place(p) }}. Enter your own price: assessments and past sales are not market values.
+        </p>
+      } @else if (w.catalog().detailError) {
+        <p class="insight warning studio-for" role="alert">
+          The property you came from could not load. You can still work with your own figures, or
+          <a [routerLink]="['/property', id]">go back to its record</a>.
+        </p>
+      }
+    }
+    <div class="tabs" role="tablist" aria-label="Calculator">
+      @for (t of tabs(); track t[0]) {
+        <button
+          type="button"
+          role="tab"
+          [id]="'studio-tab-' + t[0]"
+          [attr.aria-selected]="mode() === t[0]"
+          aria-controls="studio-panel"
+          [attr.tabindex]="mode() === t[0] ? 0 : -1"
+          [class.active]="mode() === t[0]"
+          [attr.data-tab]="t[0]"
+          (keydown)="onTabKey($event)"
+          (click)="show(t[0])"
+        >
+          {{ t[1] }}
+        </button>
+      }
+    </div>
+    <div role="tabpanel" id="studio-panel" [attr.aria-labelledby]="'studio-tab-' + mode()">
+      <!-- All three stay mounted, so switching tabs keeps what was typed. -->
+      <gz-mortgage-calculator [hidden]="mode() !== 'mortgage'" />
+      <gz-affordability-calculator [hidden]="mode() !== 'affordability'" />
+      @if (investor()) {
+        <gz-rental-analysis [hidden]="mode() !== 'rental'" [propertyId]="propertyId()" />
+      }
+    </div>
+  `,
+  styles: `
+    .studio-for {
+      margin: calc(-1 * var(--sp-8)) 0 var(--sp-16);
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+      max-width: 90ch;
+    }
+    .studio-for a {
+      color: var(--ink);
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .studio-for a:hover {
+      color: var(--copper);
+    }
+    .insight.studio-for {
+      margin-top: 0;
+    }
+    .tabs {
+      margin-bottom: var(--sp-24);
+    }
+  `,
 })
 export class InvestmentStudio {
-  w = inject(Workspace);
-  state = this.w.store.selectSignal(selectMortgage);
-  readonly tabs = [
-    ['mortgage', 'Mortgage payment'],
+  readonly w = inject(Workspace);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  /** Rental analysis (POST /api/calculations/investment) is the investor's; the calculators are everyone's. */
+  readonly investor = computed(() => this.w.features().investment);
+  readonly tabs = computed<readonly (readonly [StudioMode, string])[]>(() => [
+    // Short enough that all three fit at 390 px.
+    ['mortgage', 'Mortgage'],
     ['affordability', 'Affordability'],
-    ['rental', 'Rental investment'],
-  ] as const;
-  private route = inject(ActivatedRoute);
-  /** ?mode=affordability (or rental) opens that tab, e.g. from the dashboard affordability card. */
-  mode = signal<StudioMode>(modeFrom(this.route.snapshot.queryParamMap.get('mode')));
-  private params = toSignal(this.route.paramMap);
-  propertyId = computed(() => {
+    ...(this.investor() ? [['rental', 'Rental'] as const] : []),
+  ]);
+  private readonly query = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
+  /**
+   * ?mode=affordability (or rental) opens that tab, and the tab follows the address: the nav's
+   * Studio link (no ?mode) brings back Mortgage even when the page is already open.
+   */
+  readonly mode = linkedSignal<StudioMode>(() => {
+    const asked = modeFrom(this.query().get('mode'));
+    return asked === 'rental' && !this.investor() ? 'mortgage' : asked;
+  });
+  private readonly params = toSignal(this.route.paramMap);
+  readonly propertyId = computed(() => {
     const id = Number(this.params()?.get('id'));
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   });
+
   constructor() {
+    // The property the studio was opened from, for its name and a link back.
     effect(() => {
       const id = this.propertyId();
       if (id !== null && untracked(() => this.w.catalog().detail?.id) !== id)
-        this.w.store.dispatch(CatalogActions.loadDetail({ id }));
+        untracked(() => this.w.store.dispatch(CatalogActions.loadDetail({ id })));
+    });
+  }
+
+  show(mode: StudioMode) {
+    if (mode === this.mode()) return;
+    this.mode.set(mode);
+    // Kept in the address, so a refresh or a shared link opens the same calculator.
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { mode: mode === 'mortgage' ? null : mode },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
   onTabKey(event: KeyboardEvent) {
     if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const order = this.tabs.map((t) => t[0]);
+    const order = this.tabs().map((t) => t[0]);
     const index = order.indexOf(this.mode());
     const next =
       event.key === 'Home'
@@ -60,46 +151,16 @@ export class InvestmentStudio {
         : event.key === 'End'
           ? order.length - 1
           : (index + (event.key === 'ArrowRight' ? 1 : -1) + order.length) % order.length;
-    this.mode.set(order[next]);
+    this.show(order[next]);
     document.getElementById('studio-tab-' + order[next])?.focus();
   }
-  price: number | null = null;
-  downPayment: number | null = null;
-  annualInterestRate: number | null = null;
-  loanTermYears = 30;
-  annualPropertyTax: number | null = null;
-  annualHomeInsurance: number | null = null;
-  monthlyHoaFees: number | null = null;
-  calculate() {
-    if (
-      this.price === null ||
-      this.price <= 0 ||
-      this.downPayment === null ||
-      this.downPayment < 0 ||
-      this.downPayment > this.price ||
-      this.annualInterestRate === null ||
-      this.annualInterestRate < 0 ||
-      this.annualInterestRate > 100 ||
-      this.loanTermYears < 1 ||
-      this.loanTermYears > 50
-    ) {
-      this.w.toast('Check the price, down payment, interest rate and term.');
-      return;
-    }
-    this.w.store.dispatch(
-      A.calculate({
-        request: {
-          price: this.price,
-          downPayment: this.downPayment,
-          annualInterestRate: this.annualInterestRate,
-          loanTermYears: this.loanTermYears,
-          ...(this.annualPropertyTax === null ? {} : { annualPropertyTax: this.annualPropertyTax }),
-          ...(this.annualHomeInsurance === null
-            ? {}
-            : { annualHomeInsurance: this.annualHomeInsurance }),
-          ...(this.monthlyHoaFees === null ? {} : { monthlyHoaFees: this.monthlyHoaFees }),
-        },
-      }),
-    );
+
+  folio(f: string | null | undefined) {
+    return formatFolio(f);
+  }
+  /** ", Miami, FL 33133" after the address. */
+  place(p: { address?: { city?: string; zip?: string } | null; countyName?: string | null; stateCode?: string | null }) {
+    const line = placeLine(p.address?.city || p.countyName, p.stateCode, p.address?.zip);
+    return line ? ', ' + line : '';
   }
 }

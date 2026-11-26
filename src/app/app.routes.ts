@@ -1,11 +1,14 @@
 import { Routes } from '@angular/router';
 import { provideFeatureStore } from './store';
+import { featureGuard } from './core/guards/feature.guard';
 
 // Feature-only store slices are provided on their route so they load with that page. Path
 // variants of one page sit under a component-less parent so the slice registers exactly once.
 export const routes: Routes = [
   { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
   {
+    // The home overview for every account; each professional area's overview under it, guarded by
+    // its feature (entitlements, backend SCRUM-204).
     path: 'dashboard',
     providers: provideFeatureStore(
       'dashboard',
@@ -13,7 +16,45 @@ export const routes: Routes = [
       'investorDashboard',
       'lenderDashboard',
     ),
-    loadComponent: () => import('./features/dashboard/dashboard').then((m) => m.Dashboard),
+    children: [
+      {
+        path: '',
+        loadComponent: () => import('./features/dashboard/dashboard').then((m) => m.Dashboard),
+      },
+      {
+        path: 'investments',
+        canActivate: [featureGuard('investment')],
+        loadComponent: () =>
+          import('./features/dashboard/investor-dashboard/investor-dashboard').then(
+            (m) => m.InvestorDashboard,
+          ),
+      },
+      {
+        path: 'crm',
+        canActivate: [featureGuard('realtorCrm')],
+        loadComponent: () =>
+          import('./features/dashboard/realtor-dashboard/realtor-dashboard').then(
+            (m) => m.RealtorDashboard,
+          ),
+      },
+      {
+        path: 'lending',
+        canActivate: [featureGuard('lender')],
+        loadComponent: () =>
+          import('./features/dashboard/lender-dashboard/lender-dashboard').then(
+            (m) => m.LenderDashboard,
+          ),
+      },
+    ],
+  },
+  {
+    // A new account chooses its account type here first (the shell sends it), once.
+    path: 'onboarding',
+    loadComponent: () => import('./features/onboarding/onboarding').then((m) => m.Onboarding),
+  },
+  {
+    path: 'no-access',
+    loadComponent: () => import('./features/no-access/no-access').then((m) => m.NoAccess),
   },
   {
     path: 'explore/live',
@@ -21,6 +62,7 @@ export const routes: Routes = [
   },
   {
     path: 'explore',
+    providers: provideFeatureStore('exploreMap'),
     loadComponent: () => import('./features/explore/explore').then((m) => m.Explore),
   },
   { path: 'map', redirectTo: 'explore/live', pathMatch: 'full' },
@@ -69,6 +111,7 @@ export const routes: Routes = [
   },
   {
     path: 'portfolio',
+    canActivate: [featureGuard('investment')],
     loadComponent: () => import('./features/portfolio/portfolio').then((m) => m.Portfolio),
   },
   { path: 'saved', loadComponent: () => import('./features/saved/saved').then((m) => m.Saved) },
@@ -83,12 +126,13 @@ export const routes: Routes = [
   },
   {
     path: 'settings',
-    providers: provideFeatureStore('notificationPreferences', 'realtorLicense'),
+    providers: provideFeatureStore('notificationPreferences'),
     loadComponent: () => import('./features/settings/settings').then((m) => m.Settings),
   },
   {
     path: 'crm',
     providers: provideFeatureStore('crm'),
+    canActivate: [featureGuard('realtorCrm')],
     children: [
       { path: '', loadComponent: () => import('./features/crm/crm').then((m) => m.Crm) },
       { path: ':tab', loadComponent: () => import('./features/crm/crm').then((m) => m.Crm) },
@@ -97,11 +141,13 @@ export const routes: Routes = [
   {
     path: 'loan-review',
     providers: provideFeatureStore('lender'),
+    canActivate: [featureGuard('lender')],
     loadComponent: () => import('./features/loan-review/loan-review').then((m) => m.LoanReview),
   },
   {
     path: 'admin',
-    providers: provideFeatureStore('importJobs', 'admin'),
+    providers: provideFeatureStore('importJobs', 'admin', 'adminAccess'),
+    canActivate: [featureGuard('administration')],
     children: [
       { path: '', redirectTo: 'import-jobs', pathMatch: 'full' },
       {
@@ -116,6 +162,24 @@ export const routes: Routes = [
         path: 'valuations',
         loadComponent: () =>
           import('./features/admin/valuation-operations').then((m) => m.ValuationOperations),
+      },
+      // Account types (SCRUM-204): the approval queues and one user's role history.
+      {
+        path: 'role-requests',
+        loadComponent: () => import('./features/admin/role-requests').then((m) => m.RoleRequests),
+      },
+      {
+        path: 'realtor-licenses',
+        loadComponent: () =>
+          import('./features/admin/realtor-licenses').then((m) => m.RealtorLicenses),
+      },
+      {
+        path: 'users',
+        loadComponent: () => import('./features/admin/user-roles').then((m) => m.UserRoles),
+      },
+      {
+        path: 'users/:userId',
+        loadComponent: () => import('./features/admin/user-roles').then((m) => m.UserRoles),
       },
     ],
   },

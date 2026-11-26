@@ -1,9 +1,10 @@
 import { Component, computed, effect, inject, input, untracked } from '@angular/core';
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DecimalPipe } from '@angular/common';
 import { Store } from '@ngrx/store';
 import { RequestStatus } from '../../shared/components/request-status';
-import { OpportunityFactor } from '../../core/models/opportunity';
-import { labelFor } from '../../shared/pipes/label.pipe';
+import { RECORD_KIT } from '../../shared/components/record';
+import { ScoreFactors, splitVersionNotes } from '../../shared/components/score-factors';
+import { formatLocalDate, formatRecordDate } from '../../shared/data/format';
 import { PropertyInsightsActions as A } from '../../store/property-insights/property-insights.actions';
 import { selectPropertyInsights } from '../../store/property-insights/property-insights.selectors';
 
@@ -14,20 +15,13 @@ import { selectPropertyInsights } from '../../store/property-insights/property-i
  */
 @Component({
   selector: 'gz-property-opportunity',
-  imports: [DatePipe, DecimalPipe, RequestStatus],
+  imports: [DecimalPipe, RequestStatus, ScoreFactors, ...RECORD_KIT],
   template: `
-    <div class="panel section">
-      <div class="panelhead">
-        <div>
-          <h3>Opportunity score</h3>
-          <p class="smalltext muted">
-            Ranks the evidence stored today: forecasts, market outlook and valuation confidence
-          </p>
-        </div>
-        @if (score().value; as s) {
-          <span class="tag">{{ s.scoreVersion }}</span>
-        }
-      </div>
+    <gz-record-section heading="Opportunity score">
+      <p class="op-lede">
+        Ranks the evidence stored today: forecasts, market outlook and valuation confidence. A
+        research aid, not a recommendation to buy.
+      </p>
       <gz-request-status
         [loading]="score().loading && !score().value"
         loadingText="Scoring this property…"
@@ -37,124 +31,112 @@ import { selectPropertyInsights } from '../../store/property-insights/property-i
       />
       @if (score().value; as s) {
         @if (s.status === 'SCORED' && s.score !== null) {
-          <div class="score-head">
-            <p class="score-value">
-              {{ s.score | number: '1.0-1' }}<span class="muted"> / {{ s.maxScore }}</span>
-            </p>
-            <div class="score-meter" role="img" [attr.aria-label]="meterLabel()">
-              <span class="earned" [style.width.%]="(s.score / s.maxScore) * 100"></span>
-              <span
-                class="coverage"
-                [style.width.%]="(s.coveragePercent / s.maxScore) * 100"
-              ></span>
-            </div>
-            <p class="smalltext muted">
-              The evidence available covers {{ s.coveragePercent | number: '1.0-0' }} of
-              {{ s.maxScore }} points, so the score cannot go higher than that.
-            </p>
-          </div>
+          <p class="op-score">
+            <b>{{ s.score | number: '1.0-1' }}</b> of {{ s.maxScore }}
+          </p>
+          <p class="op-coverage">
+            <span class="covbar" aria-hidden="true"
+              ><i [style.width.%]="share(s.coveragePercent, s.maxScore)"></i
+            ></span>
+            The evidence on record covers {{ s.coveragePercent | number: '1.0-0' }} of
+            {{ s.maxScore }} points, so the score can't go higher than that.
+          </p>
         } @else {
-          <p class="insight warning">This property cannot be scored yet.</p>
+          <p class="op-caution" role="note">This property can't be scored yet.</p>
           <ul class="reason-list">
             @for (r of s.reasons; track r.code) {
               <li>{{ r.message }}</li>
             }
           </ul>
         }
-        <div class="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Factor</th>
-                <th scope="col">Evidence</th>
-                <th scope="col" class="num">Points</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (f of s.factors; track f.code) {
-                <tr [class.unavailable]="f.status !== 'AVAILABLE'">
-                  <td>
-                    <b>{{ f.label }}</b>
-                    <div class="smalltext muted">{{ category(f.category) }}</div>
-                  </td>
-                  <td>
-                    @if (f.status === 'AVAILABLE') {
-                      <b>{{ signal(f) }}</b>
-                    } @else {
-                      <span class="tag">Unavailable</span>
-                    }
-                    <div class="smalltext muted">{{ f.explanation }}</div>
-                  </td>
-                  <td class="num">
-                    {{ f.points === null ? '—' : (f.points | number: '1.0-2') }}
-                    <span class="smalltext muted">/ {{ f.weight }}</span>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        <p class="sourcedata">
+        <gz-score-factors [factors]="s.factors" />
+        <p class="table-note">
           @if (s.valuation; as v) {
-            From the {{ v.valuationStatus }} valuation, model {{ v.modelVersion }}, data through
-            {{ v.dataThrough | date: 'mediumDate' }} ·
+            From the {{ v.valuationStatus }} valuation
+            @if (day(v.dataThrough); as d) {
+              with sales through {{ d }}
+            }
+            ·
           }
-          Scored {{ s.scoredAt | date: 'medium' }}. A research aid, not a recommendation to buy.
+          Scored {{ localDay(s.scoredAt) }}.
         </p>
-        @for (n of s.notes; track n) {
-          <p class="sourcedata">{{ n }}</p>
+        <!-- Backend notes that name the scoring version go under Method (DESIGN.md §9). -->
+        @let notes = splitNotes(s.notes, s.scoreVersion);
+        @for (n of notes.plain; track n) {
+          <p class="table-note">{{ n }}</p>
         }
+        <details class="op-method">
+          <summary>Method</summary>
+          <gz-record-group>
+            <div gz-record-row label="Scoring version">{{ s.scoreVersion }}</div>
+            @if (s.valuation?.modelVersion; as m) {
+              <div gz-record-row label="Valuation model">{{ m }}</div>
+            }
+            @if (s.valuation?.runId; as run) {
+              <div gz-record-row label="Valuation run">{{ run }}</div>
+            }
+          </gz-record-group>
+          @for (n of notes.method; track n) {
+            <p class="table-note">{{ n }}</p>
+          }
+        </details>
       }
-    </div>
+    </gz-record-section>
   `,
   styles: `
-    .score-head {
-      display: grid;
-      gap: 8px;
-      margin: 6px 0 16px;
+    :host {
+      display: block;
+      min-width: 0;
     }
-    .score-value {
+    .op-lede {
+      margin: 0 0 var(--sp-12);
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+      max-width: var(--measure);
+    }
+    .op-score {
       margin: 0;
-      font:
-        700 30px Manrope,
-        sans-serif;
-      font-variant-numeric: tabular-nums;
+      font-size: var(--fs-cell);
+      color: var(--ink-2);
     }
-    .score-value .muted {
-      font-size: 16px;
+    .op-score b {
+      font-size: var(--fs-page);
+      line-height: var(--lh-page);
+      font-weight: 600;
+      color: var(--ink);
     }
-    .score-meter {
-      position: relative;
-      height: 10px;
-      border-radius: 99px;
-      background: #f0f2f3;
-      overflow: hidden;
+    .op-coverage {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-8);
+      margin: var(--sp-4) 0 var(--sp-12);
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      color: var(--ink-2);
     }
-    .score-meter span {
-      position: absolute;
-      inset: 0 auto 0 0;
-      border-radius: 99px;
-    }
-    .score-meter .coverage {
-      background: #e8d5c6;
-    }
-    .score-meter .earned {
-      z-index: 1;
-      background: var(--copper);
-    }
-    tr.unavailable b {
-      color: var(--muted);
-    }
-    .num {
-      text-align: right;
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
+    .op-caution {
+      margin: 0 0 var(--sp-4);
+      font-size: var(--fs-body);
+      color: var(--attention);
     }
     .reason-list {
-      margin: 0 0 14px;
+      margin: 0 0 var(--sp-12);
       padding-left: 18px;
       color: var(--ink-2);
-      font-size: 13px;
+      font-size: var(--fs-cell);
+    }
+    .op-method {
+      margin-top: var(--sp-12);
+      font-size: var(--fs-cell);
+    }
+    .op-method summary {
+      cursor: pointer;
+      color: var(--copper);
+      font-weight: 500;
+    }
+    .op-method gz-record-group {
+      max-width: 640px;
     }
   `,
 })
@@ -167,12 +149,6 @@ export class PropertyOpportunity {
       ? this.insights().opportunity
       : { value: null, loading: true, error: null },
   );
-  meterLabel = computed(() => {
-    const s = this.score().value;
-    return s && s.score !== null
-      ? `Score ${s.score} of ${s.maxScore}; evidence covers ${s.coveragePercent} points`
-      : '';
-  });
   constructor() {
     effect(() => {
       this.propertyId();
@@ -182,12 +158,16 @@ export class PropertyOpportunity {
   load() {
     this.store.dispatch(A.loadOpportunity({ propertyId: this.propertyId() }));
   }
-  category = labelFor;
-  /** PERCENT evidence with its sign; SCORE evidence out of 100. */
-  signal(f: OpportunityFactor) {
-    if (f.signal === null) return '—';
-    if (f.signalUnit === 'PERCENT') return (f.signal > 0 ? '+' : '') + f.signal.toFixed(2) + '%';
-    if (f.signalUnit === 'SCORE') return Math.round(f.signal) + ' of 100';
-    return String(f.signal);
+  splitNotes = splitVersionNotes;
+  /** A calendar date (dataThrough), as written. */
+  day(value: string | null | undefined) {
+    return formatRecordDate(value);
+  }
+  /** An instant (scoredAt): the viewer's own day, as the record pane writes it (DESIGN.md §13). */
+  localDay(value: string | null | undefined) {
+    return formatLocalDate(value);
+  }
+  share(part: number, whole: number) {
+    return whole > 0 ? Math.min(100, Math.max(0, (part / whole) * 100)) : 0;
   }
 }

@@ -1,5 +1,6 @@
 import { SessionScopedEffects } from '../session-scoped-effects';
 import { Injectable, inject } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Store } from '@ngrx/store';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import {
@@ -18,6 +19,14 @@ import { apiError } from '../../core/models/api-error';
 import { UiActions } from '../ui/ui.actions';
 import { LenderActions as A } from './lender.actions';
 import { selectLender } from './lender.selectors';
+
+/** Said when no account signs in with the email an owner looked up (404). */
+export const NO_ACCOUNT_FOR_EMAIL =
+  'No GeoZentra account uses this email. Ask them to sign in to GeoZentra once, then try again.';
+/** 404: no account (or no access to the organization); 400: the backend's words; else the usual. */
+export function memberLookupError(e: unknown): string {
+  return e instanceof HttpErrorResponse && e.status === 404 ? NO_ACCOUNT_FOR_EMAIL : apiError(e);
+}
 @Injectable()
 export class LenderEffects extends SessionScopedEffects {
   private actions = inject(Actions);
@@ -146,16 +155,33 @@ export class LenderEffects extends SessionScopedEffects {
       ),
     ),
   );
+  /** The newest lookup wins: an earlier answer for another email is dropped. */
+  lookupMember = createEffect(() =>
+    this.actions.pipe(
+      ofType(A.lookUpMember),
+      withLatestFrom(this.lender),
+      switchMap(([{ email }, s]) =>
+        s.selectedId === null
+          ? EMPTY
+          : this.service.lookupMember(s.selectedId, email).pipe(
+              map((result) => A.memberFound({ email, result })),
+              catchError((e) => of(A.memberLookupFailed({ email, error: memberLookupError(e) }))),
+            ),
+      ),
+    ),
+  );
   addMember = createEffect(() =>
     this.actions.pipe(
       ofType(A.addMember),
       withLatestFrom(this.lender),
-      concatMap(([{ userId }, s]) =>
+      concatMap(([{ userId, who }, s]) =>
         s.selectedId === null
           ? EMPTY
           : this.service.addMember(s.selectedId, userId).pipe(
               map(() =>
-                A.membersChanged({ message: 'User ' + userId + ' can now track applications.' }),
+                A.membersChanged({
+                  message: (who || 'User ' + userId) + ' can now track applications.',
+                }),
               ),
               catchError((e) => of(A.writeFailed({ write: 'member', error: apiError(e) }))),
             ),

@@ -1,7 +1,7 @@
 import { SessionScopedEffects } from '../session-scoped-effects';
 import { Injectable, inject } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
-import { EMPTY, catchError, exhaustMap, map, of, switchMap } from 'rxjs';
+import { catchError, exhaustMap, map, of, switchMap } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { RETRY_REASONS } from '../../core/models/import-job';
 import { ImportJobService } from '../../data-access/import-job.service';
@@ -35,8 +35,11 @@ export class ImportJobsEffects extends SessionScopedEffects {
       switchMap(({ page, silent }) =>
         this.service.list(page).pipe(
           map((p) => A.loaded({ page: p })),
-          // A failed background refresh keeps the last good table instead of replacing it.
-          catchError((e) => (silent ? EMPTY : of(A.failed({ error: apiError(e) })))),
+          // A failed background refresh keeps the last good table (the reducer decides whether a
+          // visible load it replaced was waiting on it).
+          catchError((e) =>
+            of(silent ? A.refreshFailed({ error: apiError(e) }) : A.failed({ error: apiError(e) })),
+          ),
         ),
       ),
     ),
@@ -47,7 +50,13 @@ export class ImportJobsEffects extends SessionScopedEffects {
       switchMap(({ id, silent }) =>
         this.service.get(id).pipe(
           map((job) => A.jobLoaded({ job })),
-          catchError((e) => (silent ? EMPTY : of(A.jobFailed({ error: apiError(e) })))),
+          catchError((e) =>
+            of(
+              silent
+                ? A.jobRefreshFailed({ error: apiError(e) })
+                : A.jobFailed({ error: apiError(e) }),
+            ),
+          ),
         ),
       ),
     ),

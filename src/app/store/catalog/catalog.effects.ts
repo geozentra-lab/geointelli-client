@@ -5,6 +5,7 @@ import { Store } from '@ngrx/store';
 import {
   EMPTY,
   catchError,
+  defer,
   filter,
   finalize,
   map,
@@ -12,6 +13,7 @@ import {
   switchMap,
   mergeMap,
   from,
+  tap,
   timer,
   forkJoin,
   withLatestFrom,
@@ -132,23 +134,38 @@ export class CatalogEffects extends SessionScopedEffects {
       ),
     ),
   );
-  /** Lookups in flight; failures are recorded in state so components stop re-requesting. */
-  private resolved = new Set<number>();
+  /**
+   * Ids accepted for a lookup, from the moment they are accepted (waiting behind the four in flight,
+   * or in flight) until the answer. Marked on acceptance, not when the request starts, so an id still
+   * waiting is not queued a second time. Failures are recorded in state so components stop asking.
+   */
+  private pending = new Set<number>();
+  private catalog = this.store.selectSignal(selectCatalog);
   resolve = createEffect(() =>
-    this.actions.pipe(
-      ofType(A.resolveProperty),
-      withLatestFrom(this.store.select(selectCatalog)),
-      filter(([{ id }, catalog]) => !catalog.entities[id] && !this.resolved.has(id)),
-      mergeMap(([{ id }]) => {
-        this.resolved.add(id);
-        return this.properties.getById(id).pipe(
-          map((property) => A.cacheProperty({ property })),
-          // Callers show "details unavailable" with a retry; a failed lookup is not worth a toast.
-          catchError(() => of(A.resolveFailed({ id }))),
-          finalize(() => this.resolved.delete(id)),
-        );
-      }, 4),
-    ),
+    // A new session restarts the effects: it starts with nothing pending. Ids still waiting in the
+    // queue when the last one ended never reached their finalize and would otherwise stay marked.
+    defer(() => {
+      this.pending.clear();
+      return this.actions.pipe(
+        ofType(A.resolveProperty),
+        filter(({ id }) => !this.catalog().entities[id] && !this.pending.has(id)),
+        tap(({ id }) => this.pending.add(id)),
+        mergeMap(
+          ({ id }) =>
+            defer(() =>
+              // Cached by another answer (a search, a page of results) while it waited: nothing to ask.
+              this.catalog().entities[id]
+                ? EMPTY
+                : this.properties.getById(id).pipe(
+                    map((property) => A.cacheProperty({ property })),
+                    // Callers show "details unavailable" with a retry; not worth a toast.
+                    catchError(() => of(A.resolveFailed({ id }))),
+                  ),
+            ).pipe(finalize(() => this.pending.delete(id))),
+          4,
+        ),
+      );
+    }),
   );
   favoritePhotos = createEffect(() =>
     this.actions.pipe(

@@ -28,7 +28,9 @@ export function forecastPoints(p: PropertyValuePrediction | null): ForecastPoint
   ][] = [
     [1, 'In 1 year', p.forecast1y, p.forecast1yLow, p.forecast1yHigh],
     [3, 'In 3 years', p.forecast3y, p.forecast3yLow, p.forecast3yHigh],
-    [7, 'In 7 years', p.forecast7y, p.forecast7yLow, p.forecast7yHigh],
+    [5, 'In 5 years', p.forecast5y, p.forecast5yLow, p.forecast5yHigh],
+    // Only on a row scored before the 5-year forecast replaced it (it then has no 5-year value).
+    [7, 'In 7 years', p.forecast5y ? null : p.forecast7y, p.forecast7yLow, p.forecast7yHigh],
   ];
   return rows
     .filter((r): r is [number, string, number, number | null, number | null] => (r[2] ?? 0) > 0)
@@ -74,7 +76,8 @@ const W = 560,
   BOTTOM = 34;
 
 /**
- * Current value estimate and its 1/3/7-year forecast from /api/predictions. compact drops the chart
+ * Current value estimate and its 1/3/5-year forecast from /api/predictions (7 years on a row scored
+ * before the 5-year forecast replaced it). compact drops the chart
  * and the long explanations for the property dialog.
  */
 @Component({
@@ -223,8 +226,8 @@ const W = 560,
             · sales through {{ d | date: 'mediumDate' }}
           }
           @if (!compact()) {
-            <br />Estimates and forecasts are model outputs, not appraisals. The 3- and 7-year
-            values are trend scenarios and their ranges are illustrative.
+            <br />Estimates and forecasts are model outputs, not appraisals. The 3- and
+            {{ longestScenario() }}-year values are trend scenarios and their ranges are illustrative.
           }
         </p>
       </section>
@@ -250,15 +253,15 @@ const W = 560,
     .vf-ranges > div,
     .vf-card {
       display: grid;
-      gap: 3px;
+      gap: 2px;
       padding: 10px 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fff;
+      border: 1px solid var(--rule);
+      background: var(--surface);
+      font-variant-numeric: tabular-nums lining-nums;
     }
     .vf-ranges span {
-      font-size: 12px;
-      color: var(--muted);
+      font-size: var(--fs-caption);
+      color: var(--ink-2);
     }
     .vf-title {
       display: flex;
@@ -269,7 +272,8 @@ const W = 560,
     }
     .vf-title h4 {
       margin: 0;
-      font-size: 15px;
+      font-size: var(--fs-section);
+      line-height: var(--lh-section);
     }
     .vf-forecast {
       display: grid;
@@ -281,11 +285,12 @@ const W = 560,
       gap: 10px;
     }
     .vf-card strong {
-      font-size: 18px;
+      font-size: var(--fs-section);
+      font-weight: 600;
     }
     .chg {
-      font-size: 13px;
-      font-weight: 600;
+      font-size: var(--fs-cell);
+      font-weight: 500;
     }
     .up {
       color: var(--green);
@@ -298,28 +303,27 @@ const W = 560,
       height: auto;
       display: block;
     }
+    /* Model output is chart copper (DESIGN.md §11); the baseline is rule-strong. */
     .vf-chart .axis {
-      stroke: var(--line);
+      stroke: var(--rule-strong);
       stroke-width: 1;
     }
     .vf-chart .line {
       fill: none;
-      stroke: var(--copper);
-      stroke-width: 2.5;
+      stroke: var(--chart-model);
+      stroke-width: 2;
+      stroke-linecap: round;
       stroke-linejoin: round;
     }
     .vf-chart circle {
-      fill: #fff;
-      stroke: var(--copper);
-      stroke-width: 2.5;
-    }
-    .vf-chart circle.now {
-      fill: var(--ink);
-      stroke: var(--ink);
+      fill: var(--chart-model);
+      stroke: var(--surface);
+      stroke-width: 2;
     }
     .vf-chart text {
       font-size: 12px;
-      fill: var(--muted);
+      fill: var(--ink-2);
+      font-variant-numeric: tabular-nums lining-nums;
     }
     .vf-chart text.value {
       fill: var(--ink);
@@ -328,9 +332,11 @@ const W = 560,
     .vf-note {
       margin: 0;
       padding: 8px 12px;
-      border-radius: 8px;
-      background: #f6efe9;
-      font-size: 13px;
+      border: 1px solid var(--rule);
+      box-shadow: inset 2px 0 0 var(--ink-2);
+      background: var(--surface);
+      font-size: var(--fs-cell);
+      max-width: var(--measure);
     }
     .compact {
       gap: 10px;
@@ -343,10 +349,10 @@ const W = 560,
       padding: 8px;
     }
     .compact .vf-card strong {
-      font-size: 14px;
+      font-size: var(--fs-body);
     }
     .compact .chg {
-      font-size: 12px;
+      font-size: var(--fs-caption);
     }
   `,
 })
@@ -355,6 +361,10 @@ export class ValueForecast {
   compact = input(false);
 
   points = computed(() => forecastPoints(this.prediction()));
+  /** 5, or 7 on a row scored before the 5-year forecast replaced the 7-year one. */
+  longestScenario = computed(() =>
+    this.points().some((p) => p.years === 7) && !this.points().some((p) => p.years === 5) ? 7 : 5,
+  );
   growth = computed(() => {
     const p = this.prediction();
     return hasGrowth(p) ? p : null;

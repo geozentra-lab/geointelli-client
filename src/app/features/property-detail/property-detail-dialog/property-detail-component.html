@@ -1,16 +1,11 @@
 <div class="live-detail">
   <header class="detail-header">
     <div class="detail-heading">
-      <div class="eyebrow">PROPERTY INTELLIGENCE</div>
-      <h2 mat-dialog-title class="detail-title">
-        {{ state().detail?.address?.address || 'Property overview' }}
-      </h2>
+      <h2 mat-dialog-title class="detail-title">{{ title() }}</h2>
       <p class="detail-location">
-        @if (location(); as place) {
-          <span>{{ place }}</span
-          ><span class="meta-dot">·</span>
+        @for (f of factsLine(); track $index) {
+          <span>{{ f }}</span>&ngsp;
         }
-        <span>Folio {{ data.folio }}</span>
       </p>
     </div>
     <button type="button" mat-dialog-close class="detail-close" aria-label="Close property details">
@@ -41,16 +36,11 @@
       [address]="state().detail?.address?.address || data.folio"
       [showLabel]="true"
     />
+    <a class="btn" mat-dialog-close [routerLink]="['/property', data.propertyId]"
+      >Open the full record</a
+    >
   </div>
   <mat-dialog-content class="detail-scroll">
-    <gz-property-gallery
-      [images]="photos().images"
-      [loading]="photos().loading"
-      [error]="photos().error"
-      [address]="state().detail?.address?.address || 'Property'"
-      (retry)="loadImages()"
-    />
-
     @if (state().detailLoading) {
       <gz-loading-spinner label="Loading property information" />
     } @else if (state().detailError) {
@@ -60,247 +50,52 @@
       </div>
     }
 
-    @if (state().detail; as p) {
-      <gz-sale-history
-        [sales]="p.sales || []"
-        [prediction]="saleEstimate()"
-        [loading]="valuation().loading"
-      />
-      <div class="detail-summary" aria-label="Property at a glance">
-        <div>
-          <span>Bedrooms</span><strong>{{ p.bedroomCount == null ? '—' : p.bedroomCount }}</strong>
-        </div>
-        <div>
-          <span>Bathrooms</span
-          ><strong>{{ p.bathroomCount == null ? '—' : p.bathroomCount }}</strong>
-        </div>
-        <div>
-          <span>Living area</span
-          ><strong
-            >{{ p.buildingActualArea == null ? '—' : (p.buildingActualArea | number)
-            }}<small>
-              @if (p.buildingActualArea != null) {
-                sqft
-              }
-            </small></strong
-          >
-        </div>
-        <div>
-          <span>Year built</span><strong>{{ p.yearBuilt || '—' }}</strong>
-        </div>
-      </div>
-    }
-
     <div class="detail-columns">
-      <div class="detail-records">
-        @if (state().detail; as p) {
-          <section class="detail-card">
-            <div class="card-heading">
-              <h3>Property overview</h3>
-              @if (p.status) {
-                <span class="record-status">{{ p.status }}</span>
-              }
-            </div>
-            <dl class="record-grid">
-              <div>
-                <dt>Municipality</dt>
-                <dd>{{ p.municipality || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Neighborhood</dt>
-                <dd>{{ p.neighborhoodDescription || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Property use</dt>
-                <dd>{{ p.dorDescription || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Subdivision</dt>
-                <dd>{{ p.subdivision || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Lot size</dt>
-                <dd>{{ p.lotSize == null ? '—' : (p.lotSize | number) }}</dd>
-              </div>
-              <div>
-                <dt>Units</dt>
-                <dd>{{ p.unitCount == null ? '—' : p.unitCount }}</dd>
-              </div>
-            </dl>
-          </section>
-          <section class="detail-card">
-            <div class="card-heading">
-              <h3>Ownership</h3>
-              <span class="record-count">{{ (p.owners || []).length }} records</span>
-            </div>
-            @for (owner of p.owners; track $index) {
-              <div class="record-row">
-                <div>
-                  <strong>{{ owner.name || 'Owner name unavailable' }}</strong>
-                  @if (owner.role) {
-                    <span class="record-secondary">{{ owner.role }}</span>
-                  }
-                </div>
-                <span class="record-amount">{{
-                  owner.percentageOwn == null ? '—' : (owner.percentageOwn | number: '1.0-2') + '%'
-                }}</span>
-              </div>
-            } @empty {
-              <p class="empty-record">No ownership information available.</p>
-            }
-          </section>
-          <section class="detail-card">
-            <div class="card-heading">
-              <h3>Assessments</h3>
-              <span class="record-count">Recorded values</span>
-            </div>
-            @for (a of p.assessments; track $index) {
-              <div class="record-row">
-                <div>
-                  <strong>{{ a.year }}</strong
-                  ><span class="record-secondary">Total assessed value</span>
-                </div>
-                <span class="record-amount">{{
-                  a.totalValue | currency: 'USD' : 'symbol' : '1.0-0'
-                }}</span>
-              </div>
-            } @empty {
-              <p class="empty-record">No assessment records available.</p>
-            }
-          </section>
-          <section class="detail-card">
-            <div class="card-heading">
-              <h3>Sales history</h3>
-              <gz-icon name="clock" />
-            </div>
-            @for (s of p.sales; track $index) {
-              <div class="record-row">
-                <div>
-                  <strong>{{ s.saleDate | date: 'mediumDate' }}</strong>
-                  @if (s.saleType) {
-                    <span class="record-secondary">{{ s.saleType }}</span>
-                  }
-                </div>
-                <span class="record-amount">{{
-                  s.salePrice | currency: 'USD' : 'symbol' : '1.0-0'
-                }}</span>
-              </div>
-            } @empty {
-              <p class="empty-record">No sales history available.</p>
-            }
-          </section>
-        }
-      </div>
-      <aside class="detail-valuation" aria-label="Property valuation">
+      <aside class="detail-valuation" aria-label="ZentraValue">
         @if (valuation().loading) {
-          <section class="detail-card"><gz-loading-spinner label="Loading valuation" /></section>
+          <div class="zv-skeleton" aria-busy="true">
+            <span class="sr-only">Loading the ZentraValue</span>
+            <i></i><i></i><i></i>
+          </div>
         } @else if (valuation().notFound) {
-          <section class="detail-card">
-            <h3>ZentraValue</h3>
-            <p class="empty-record">There is no valuation record for this property.</p>
-          </section>
+          <p class="empty-record">There is no valuation record for this property.</p>
         } @else if (valuation().error) {
-          <section class="detail-card">
-            <h3>ZentraValue</h3>
-            <p class="empty-record" role="alert">{{ valuation().error }}</p>
-            <button type="button" class="btn small spacer" (click)="retryValuation()">
-              Retry valuation
-            </button>
-          </section>
-        } @else if (valuation().valuation; as v) {
-          @if (showsEstimate()) {
-            <section class="value-card">
-              <div class="value-heading">
-                <span class="value-brand"><gz-icon name="spark" />ZentraValue</span
-                ><span class="value-badge">{{
-                  v.status === 'limited' ? 'Limited estimate' : 'Estimate'
-                }}</span>
-              </div>
-              <div class="value-price">
-                {{
-                  estimate() === null
-                    ? 'Unavailable'
-                    : (estimate() | currency: 'USD' : 'symbol' : '1.0-0')
-                }}
-              </div>
-              <p class="value-subtitle">
-                Estimated value
-                @if (v.method?.predictionDate; as on) {
-                  · {{ on | date: 'mediumDate' }}
-                }
-              </p>
-              @if (range(); as r) {
-                <div class="value-range">
-                  <span>Likely range (80%)</span
-                  ><strong
-                    >{{ r.low | currency: 'USD' : 'symbol' : '1.0-0' }} –
-                    {{ r.high | currency: 'USD' : 'symbol' : '1.0-0' }}</strong
-                  >
-                  @if (r.at !== null) {
-                    <div class="range-track" aria-hidden="true">
-                      <i [style.left.%]="r.at"></i>
-                    </div>
-                  }
-                </div>
-              }
-              <div class="value-row">
-                <span>Confidence</span><strong>{{ confidence() }}</strong>
-              </div>
-              @if (oneYear(); as f) {
-                <div class="value-row">
-                  <span>In 1 year (forecast)</span
-                  ><strong
-                    >{{ f.value | currency: 'USD' : 'symbol' : '1.0-0' }}
-                    @if (f.change !== null) {
-                      <span [class.growth-positive]="f.change >= 0"
-                        >({{ f.change > 0 ? '+' : '' }}{{ f.change | number: '1.1-1' }}%)</span
-                      >
-                    }
-                  </strong>
-                </div>
-              }
-              @if (v.status === 'limited' && reasons().length) {
-                <p class="value-note">Limited: {{ reasons()[0].message }}</p>
-              }
-              <a class="value-link" mat-dialog-close [routerLink]="['/property', data.propertyId]"
-                >Full valuation, forecast and evidence <gz-icon name="arrow"
-              /></a>
-            </section>
-          } @else {
-            <section class="detail-card">
-              <h3>ZentraValue</h3>
-              <p class="empty-record">No estimate is produced for this property:</p>
-              <ul class="reason-list">
-                @for (r of reasons(); track r.code) {
-                  <li>{{ r.message }}</li>
-                } @empty {
-                  <li>The model does not support this property.</li>
-                }
-              </ul>
-            </section>
-          }
-        }
-        @if (lastSale(); as sale) {
-          <section class="detail-card last-sale">
-            <h3>Last recorded sale</h3>
-            <strong>{{ sale.price | currency: 'USD' : 'symbol' : '1.0-0' }}</strong>
-            <p>
-              @if (sale.date) {
-                {{ sale.date | date: 'mediumDate' }}
-              } @else {
-                Sale date unavailable
-              }
-            </p>
-          </section>
+          <p class="empty-record" role="alert">{{ valuation().error }}</p>
+          <button type="button" class="btn small spacer" (click)="retryValuation()">
+            Retry valuation
+          </button>
+        } @else {
+          <gz-zentra-value [valuation]="valuation().valuation" />
+          <a class="value-link" mat-dialog-close [routerLink]="['/property', data.propertyId]"
+            >Full valuation and evidence</a
+          >
         }
       </aside>
+      <div class="detail-records">
+        @if (state().detail; as p) {
+          @if (showGallery()) {
+            <gz-property-gallery
+              class="detail-gallery"
+              [images]="photos().images"
+              [loading]="photos().loading"
+              [error]="photos().error"
+              [address]="title()"
+              (retry)="loadImages()"
+            />
+          }
+          <gz-property-facts [property]="p" />
+          <gz-sale-history
+            [headingLevel]="2"
+            [sales]="p.sales || []"
+            [prediction]="saleEstimate()"
+            [loading]="valuation().loading"
+          />
+          <gz-property-assessments [assessments]="p.assessments" />
+        }
+      </div>
     </div>
   </mat-dialog-content>
   <footer class="detail-footer">
-    <span
-      ><gz-icon name="pin" />{{
-        state().detail?.countyName || state().detail?.municipality || 'Property records'
-      }}</span
-    ><button type="button" class="btn primary" mat-dialog-close>Done</button>
+    <button type="button" class="btn" mat-dialog-close>Done</button>
   </footer>
 </div>

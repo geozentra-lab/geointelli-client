@@ -27,7 +27,16 @@
             ],
             "styles": [
               "src/material-theme.scss",
-              "node_modules/leaflet/dist/leaflet.css",
+              {
+                "input": "node_modules/leaflet/dist/leaflet.css",
+                "bundleName": "leaflet",
+                "inject": false
+              },
+              {
+                "input": "src/map.css",
+                "bundleName": "leaflet",
+                "inject": false
+              },
               "src/styles.css"
             ]
           },

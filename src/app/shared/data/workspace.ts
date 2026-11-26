@@ -19,6 +19,13 @@ import { selectPortfolioState, selectPortfolios } from '../../store/portfolio/po
 import { selectUi } from '../../store/ui/ui.selectors';
 import { ToastKind, UiActions } from '../../store/ui/ui.actions';
 import { UserActions } from '../../store/user/user.actions';
+import { AccountActions } from '../../store/account/account.actions';
+import {
+  selectAccount,
+  selectAccountType,
+  selectFeatures,
+  selectPendingRoles,
+} from '../../store/account/account.selectors';
 import { KeycloakService } from '../../core/auth/keycloak.service';
 import { PropertySearchRequest } from '../../core/models/api';
 @Injectable({ providedIn: 'root' })
@@ -27,6 +34,12 @@ export class Workspace {
   readonly auth = inject(KeycloakService);
   readonly user = this.store.selectSignal(selectUser);
   readonly account = this.store.selectSignal(selectUserState);
+  /** Account type, features and onboarding (backend SCRUM-204): from the access token's roles. */
+  readonly access = this.store.selectSignal(selectAccount);
+  readonly features = this.store.selectSignal(selectFeatures);
+  /** investor, realtor or lender; null is a home buyer. */
+  readonly accountType = this.store.selectSignal(selectAccountType);
+  readonly pendingRoles = this.store.selectSignal(selectPendingRoles);
   readonly notifications = this.store.selectSignal(selectNotifications);
   readonly ui = this.store.selectSignal(selectUi);
   readonly catalog = this.store.selectSignal(selectCatalog);
@@ -106,6 +119,18 @@ export class Workspace {
         ),
       );
   }
+  signUp() {
+    void this.auth
+      .register()
+      .catch(() =>
+        this.toast(
+          this.auth.unavailable
+            ? 'Account creation is temporarily unavailable. You can keep browsing as a guest; reload to try again.'
+            : 'The account page could not be opened. Try again.',
+          'error',
+        ),
+      );
+  }
   requireAccount(action = 'save changes') {
     if (!this.auth.isLoggedIn()) {
       this.toast('Sign in to ' + action + '. You can keep browsing as a guest.');
@@ -130,7 +155,10 @@ export class Workspace {
       .logout()
       .catch(() => this.toast('Sign-out could not finish. Please try again.', 'error'));
   }
+  /** The profile, and the entitlements (account type, features, onboarding), after sign-in. */
   reloadUser() {
-    if (this.auth.isLoggedIn()) this.store.dispatch(UserActions.load());
+    if (!this.auth.isLoggedIn()) return;
+    this.store.dispatch(UserActions.load());
+    this.store.dispatch(AccountActions.loadEntitlements());
   }
 }

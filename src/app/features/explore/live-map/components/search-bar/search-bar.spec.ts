@@ -27,6 +27,24 @@ describe('Parcel search', () => {
     search.submit();
     expect(result).toEqual({ mode: 'folio', value: '0123456789', countyId: 17 });
   });
+  it('says why Search is disabled, next to it', () => {
+    const fixture = TestBed.createComponent(SearchBar);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const button = [...el.querySelectorAll('button')].find((b) => b.textContent!.trim() === 'Search')!;
+    const hint = () => el.querySelector('.search-hint')?.textContent?.trim();
+    expect(button.disabled).toBe(true);
+    expect(hint()).toBe('Choose a state and county to search by folio.');
+    expect(el.querySelector('#' + button.getAttribute('aria-describedby'))).not.toBeNull();
+    fixture.componentInstance.countyId.set(17);
+    fixture.detectChanges();
+    expect(hint()).toBe('Enter a folio number to search.');
+    fixture.componentInstance.value.set('0141370120450');
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+    expect(hint()).toBeUndefined();
+    expect(button.hasAttribute('aria-describedby')).toBe(false);
+  });
   it('keeps its county choice local to the map, seeded from the Explore selection', () => {
     store.dispatch(LocationsActions.selectState({ stateId: 3 }));
     http

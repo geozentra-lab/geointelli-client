@@ -1,17 +1,7 @@
-import { Component, computed, effect, inject, input, output, untracked } from '@angular/core';
-import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
+import { Component, ViewEncapsulation, computed, input, output } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Store } from '@ngrx/store';
-import { Icon } from '../../shared/components/icon/icon';
-import { PropertyRef } from '../../shared/components/property-ref';
-import { labelFor } from '../../shared/pipes/label.pipe';
-import { ActivityCardDTO, ActivityType } from '../../core/models/dashboard';
-import { DashboardActions } from '../../store/dashboard/dashboard.actions';
-import { selectDashboard } from '../../store/dashboard/dashboard.selectors';
-import { RecommendationsActions } from '../../store/recommendations/recommendations.actions';
-import { selectRecommendations } from '../../store/recommendations/recommendations.selectors';
-import { OpportunitiesActions } from '../../store/opportunities/opportunities.actions';
-import { selectOpportunities } from '../../store/opportunities/opportunities.selectors';
+import { Coverage } from '../../shared/components/missing';
 
 /** $1.2M / $845K / $920: amounts on KPI tiles, where space is tight. Null stays unavailable. */
 export function usdCompact(value: number | null | undefined): string | null {
@@ -24,46 +14,184 @@ export function usdCompact(value: number | null | undefined): string | null {
   return `${sign}$${Math.round(abs).toLocaleString('en-US')}`;
 }
 
+/** Coverage of a partial figure, from the backend's counts. */
+export interface KpiCoverage {
+  covered: number;
+  total: number;
+  /** "holdings valued" → "Partial: 3 of 5 holdings valued". */
+  noun: string;
+  /** False for a metric that is complete by definition: coverage without the Partial label. */
+  partial?: boolean;
+  /** Words before the counts when not partial ("From records on"). */
+  lead?: string;
+}
+
 /**
- * One KPI tile. Every tile names its scope (caption) and, where the API gives one, its freshness,
- * so a number never stands on its own. A null value shows as unavailable, never as zero.
+ * One figure of the summary strip (DESIGN.md §12): `<dl class="kpi-row">` holds `<div gz-kpi>`
+ * figures separated by 1 px rules under a 2 px ink rule, never tiles. Each figure is a label (dt),
+ * the figure (dd.kpi-value, spec-asserted) and a caption. A null value is Unavailable on the hatch
+ * with the reason as its caption, never zero or a dash; a partial figure carries "Partial: N of M …"
+ * and a coverage bar (`coverage`). With `link` the label is a link that covers the whole figure.
+ *
+ * The strip's styles live here (not in the global sheet), so they load with the pages that use it.
  */
 @Component({
-  selector: 'gz-kpi',
-  imports: [RouterLink, Icon, NgTemplateOutlet],
+  selector: 'div[gz-kpi]',
+  imports: [RouterLink, Coverage],
+  encapsulation: ViewEncapsulation.None,
   template: `
-    @if (link(); as href) {
-      <a class="kpi" [routerLink]="href" [queryParams]="query()">
-        <ng-container *ngTemplateOutlet="body" />
-      </a>
-    } @else {
-      <div class="kpi"><ng-container *ngTemplateOutlet="body" /></div>
-    }
-    <ng-template #body>
-      <span class="kpi-icon" [class]="'kpi-icon ' + tone()"><gz-icon [name]="icon()" /></span>
-      <span class="kpi-label">{{ label() }}</span>
-      @if (loading()) {
-        <span class="kpi-value skeleton" aria-label="Loading"></span>
+    <dt class="kpi-label">
+      @if (link(); as href) {
+        <a class="kpi-link" [routerLink]="href" [queryParams]="query()">{{ label() }}</a>
       } @else {
-        <span class="kpi-value" [class.na]="value() === null">{{ value() ?? '—' }}</span>
+        {{ label() }}
       }
-      <span class="kpi-caption">{{
-        value() === null && !loading() ? unavailable() : caption()
-      }}</span>
-    </ng-template>
+    </dt>
+    @if (loading()) {
+      <dd class="kpi-value skeleton"><span class="sr-only">Loading</span></dd>
+    } @else if (value() === null) {
+      <dd class="kpi-value na"><span class="na-word">Unavailable</span></dd>
+      <dd class="kpi-caption">{{ unavailable() }}</dd>
+    } @else {
+      <dd class="kpi-value">{{ value() }}</dd>
+      @if (coverage(); as c) {
+        <dd class="kpi-caption">
+          <gz-coverage
+            [covered]="c.covered"
+            [total]="c.total"
+            [noun]="c.noun"
+            [partial]="c.partial ?? true"
+            [lead]="c.lead ?? ''"
+          />
+        </dd>
+      } @else if (partialRest(); as rest) {
+        <dd class="kpi-caption"><em class="partial-word">Partial:</em> {{ rest }}</dd>
+      } @else if (caption()) {
+        <dd class="kpi-caption">{{ caption() }}</dd>
+      }
+    }
   `,
-  host: { class: 'kpi-host' },
+  host: { class: 'kpi' },
+  styles: `
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+      margin: 0;
+      overflow: hidden;
+      background: var(--surface);
+      border-top: 2px solid var(--ink);
+      border-bottom: 1px solid var(--rule);
+      container-type: inline-size;
+    }
+    /* Two columns (a narrow section, a phone): an odd last figure takes the whole row, so no
+       half-ruled empty cell sits beside it. */
+    @container (max-width: 449.98px) {
+      .kpi:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+      }
+    }
+    /* Rules between figures: every figure draws its left and top rule, and the strip clips the ones
+       on its outer edge, so any count wraps cleanly (no grey gap cells). */
+    .kpi {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      margin: -1px 0 0 -1px;
+      padding: 14px 20px 16px;
+      border-left: 1px solid var(--rule);
+      border-top: 1px solid var(--rule);
+      color: var(--ink);
+      transition: background-color var(--dur-color) ease;
+    }
+    .kpi dd {
+      margin: 0;
+    }
+    .kpi-label {
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+    }
+    .kpi-link {
+      color: inherit;
+    }
+    .kpi-link::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+    }
+    .kpi:has(.kpi-link:hover) {
+      background: var(--row-hover);
+    }
+    .kpi-link:hover {
+      color: var(--ink);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .kpi-link:focus-visible {
+      outline: none;
+    }
+    .kpi-link:focus-visible::after {
+      outline: 2px solid var(--focus);
+      outline-offset: -2px;
+    }
+    /* .kpi-value is spec-asserted. Figures are proportional, not tabular (§3). */
+    .kpi-value {
+      font-size: var(--fs-page);
+      line-height: var(--lh-page);
+      font-weight: 600;
+      letter-spacing: var(--track-24);
+      font-variant-numeric: proportional-nums lining-nums;
+    }
+    .kpi-value.na {
+      align-self: stretch;
+      margin: 0 -20px;
+      padding: 0 20px;
+      letter-spacing: 0;
+    }
+    .kpi-value.na .na-word {
+      font-size: var(--fs-body);
+      font-weight: 500;
+    }
+    .kpi-value.skeleton {
+      height: var(--lh-page);
+      width: 60%;
+    }
+    .kpi-caption {
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      color: var(--ink-2);
+    }
+    .kpi-caption .covbar {
+      margin: 4px 0 5px;
+    }
+    @media (max-width: 700px) {
+      .kpi {
+        padding: 12px 14px 14px;
+      }
+      .kpi-value.na {
+        margin: 0 -14px;
+        padding: 0 14px;
+      }
+    }
+  `,
 })
 export class Kpi {
   label = input.required<string>();
   value = input<string | number | null>(null);
   caption = input('');
+  /** The reason shown under "Unavailable" when the value is null. */
   unavailable = input('Not available yet');
-  icon = input('chart');
-  tone = input<'copper' | 'green' | 'ink' | 'amber'>('copper');
+  coverage = input<KpiCoverage | null>(null);
   link = input<string | null>(null);
   query = input<Record<string, string> | null>(null);
   loading = input(false);
+  /** A caption written as "Partial: …" gets the Partial label's treatment. */
+  readonly partialRest = computed(() => {
+    const c = this.caption();
+    return c.startsWith('Partial: ') ? c.slice('Partial: '.length) : null;
+  });
 }
 
 export interface StageRow {
@@ -77,8 +205,10 @@ export interface StageRow {
 }
 
 /**
- * Pipeline as horizontal bars, widest stage = full width. Rows link to the module filtered on that
- * stage, so the chart is a way in, not only a picture.
+ * Pipeline as horizontal bars, widest stage = full width (DESIGN.md §11): open stages in the
+ * ordinal copper ramp, in pipeline order; terminal "lost" stages muted. Each row shows its count,
+ * and the amount where one is given (Unavailable when the backend has none). Rows link to the
+ * module filtered on that stage, so the chart is a way in, not only a picture.
  */
 @Component({
   selector: 'gz-stage-bars',
@@ -86,7 +216,11 @@ export interface StageRow {
   template: `
     <ol class="stages" [attr.aria-label]="label()">
       @for (r of rows(); track r.key) {
-        <li [class.muted]="r.muted" [class.active]="r.key === active()">
+        <li
+          [class.muted]="r.muted"
+          [class.active]="r.key === active()"
+          [style.--stage-color]="tone(r)"
+        >
           @if (link(); as href) {
             <a [routerLink]="href" [queryParams]="queryFor(r)">
               <ng-container *ngTemplateOutlet="row; context: { $implicit: r }" />
@@ -108,7 +242,11 @@ export interface StageRow {
       <span class="stage-track"><span class="stage-fill" [style.width.%]="width(r)"></span></span>
       <span class="stage-count">{{ r.count }}</span>
       @if (r.amount !== undefined) {
-        <span class="stage-amount">{{ money(r.amount) }}</span>
+        @if (money(r.amount); as m) {
+          <span class="stage-amount">{{ m }}</span>
+        } @else {
+          <span class="stage-amount na"><span class="na-word">Unavailable</span></span>
+        }
       }
     </ng-template>
   `,
@@ -124,210 +262,28 @@ export class StageBars {
   /** Query parameter that carries the stage to the module (e.g. "stage"). */
   param = input<string | null>(null);
   private max = computed(() => Math.max(1, ...this.rows().map((r) => r.count)));
+  /** Open stages step through the five-colour ordinal ramp in pipeline order. */
+  private ramp = computed(() => {
+    const open = this.rows().filter((r) => !r.muted);
+    return new Map(open.map((r, i) => [r.key, Math.min(5, i + 1)]));
+  });
   width(r: StageRow) {
     return r.count ? Math.max(4, (r.count / this.max()) * 100) : 0;
+  }
+  tone(r: StageRow) {
+    const step = this.ramp().get(r.key);
+    return step ? `var(--chart-ord-${step})` : null;
   }
   queryFor(r: StageRow) {
     const p = this.param();
     return p ? { [p]: r.key } : null;
   }
   money(v: number | null | undefined) {
-    return usdCompact(v) ?? '—';
+    return usdCompact(v);
   }
 }
 
-const ACTIVITY: Record<ActivityType, { verb: string; icon: string }> = {
-  FAVORITE_ADDED: { verb: 'Saved a property', icon: 'heart' },
-  SAVED_SEARCH_CREATED: { verb: 'Saved a search', icon: 'search' },
-  SAVED_SEARCH_UPDATED: { verb: 'Updated a saved search', icon: 'search' },
-  ALERT_RULE_CREATED: { verb: 'Created an alert rule', icon: 'bell' },
-  ALERT_RULE_UPDATED: { verb: 'Updated an alert rule', icon: 'bell' },
-  PORTFOLIO_CREATED: { verb: 'Created a portfolio', icon: 'brief' },
-  PORTFOLIO_UPDATED: { verb: 'Updated a portfolio', icon: 'brief' },
-  HOLDING_ADDED: { verb: 'Added a holding', icon: 'home' },
-  HOLDING_UPDATED: { verb: 'Updated a holding', icon: 'home' },
-};
-type ActivityItem = ActivityCardDTO['recent'][number];
-
-/**
- * The user's own recent actions (GET /dashboards/user/activity): favorites, saved searches, alert
- * rules, portfolios and holdings, each a stored record with its stored time. Deletions and views
- * are not recorded, and the card says so instead of implying a complete history.
- */
-@Component({
-  selector: 'gz-recent-activity',
-  imports: [DatePipe, RouterLink, Icon, PropertyRef],
-  template: `
-    <section class="panel dash-card" aria-labelledby="card-activity">
-      <div class="panelhead">
-        <h3 id="card-activity">Recent activity</h3>
-        <a class="smalltext" routerLink="/saved">Saved items</a>
-      </div>
-      @let c = card();
-      @if (c.loading && !c.value) {
-        @for (i of [1, 2, 3]; track i) {
-          <div class="row-skeleton"></div>
-        }
-      } @else if (c.error && !c.value) {
-        <p class="sub" role="alert">Activity could not be loaded. {{ c.error }}</p>
-        <button type="button" class="btn small spacer" (click)="reload()">Retry</button>
-      } @else if (c.value; as a) {
-        <ul class="feed">
-          @for (item of a.recent; track item.type + item.entityId + item.occurredAt) {
-            <li>
-              <a [routerLink]="link(item)">
-                <span class="feed-dot"><gz-icon [name]="meta(item).icon" /></span>
-                <span class="feed-text">
-                  <b>{{ meta(item).verb }}</b>
-                  <small>
-                    @if (item.propertyId !== null) {
-                      <gz-property-ref [propertyId]="item.propertyId" [link]="false" />
-                    } @else {
-                      {{ item.label }}
-                    }
-                  </small>
-                </span>
-                <time class="smalltext muted" [attr.datetime]="item.occurredAt">{{
-                  item.occurredAt | date: 'MMM d'
-                }}</time>
-              </a>
-            </li>
-          } @empty {
-            <li class="empty-line">
-              Nothing yet. Saved properties, searches, alert rules and portfolios show up here.
-            </li>
-          }
-        </ul>
-        <p class="sourcedata">Additions and changes only; deletions and views are not recorded.</p>
-      }
-    </section>
-  `,
-})
-export class RecentActivity {
-  private store = inject(Store);
-  private dashboard = this.store.selectSignal(selectDashboard);
-  card = computed(() => this.dashboard().activity);
-  meta(item: ActivityItem) {
-    return ACTIVITY[item.type] ?? { verb: labelFor(item.type), icon: 'clock' };
-  }
-  link(item: ActivityItem): string | (string | number)[] {
-    if (item.type === 'FAVORITE_ADDED' && item.propertyId !== null)
-      return ['/property', item.propertyId];
-    if (item.type.startsWith('SAVED_SEARCH')) return '/saved';
-    if (item.type.startsWith('ALERT_RULE')) return '/alerts';
-    return '/portfolio';
-  }
-  /** The card loads with the other user cards (DashboardActions.load). */
-  reload() {
-    this.store.dispatch(DashboardActions.load());
-  }
-}
-
-const RECOMMENDATION_EMPTY: Record<string, string> = {
-  NO_PREFERENCES: 'Add a budget and target counties in your preferences to get matches.',
-  LOCATION_REQUIRED: 'Add at least one target county in your preferences to get matches.',
-  NO_MATCHES: 'No property matches your saved budget and counties right now.',
-};
-
-/**
- * Property suggestions from the user's saved preferences (GET /recommendations). Reads the same
- * store slice as the Opportunities page, so both always show the same suggestions.
- */
-@Component({
-  selector: 'gz-recommended',
-  imports: [DatePipe, RouterLink, Icon],
-  template: `
-    <section class="panel dash-card" aria-labelledby="card-recommended">
-      <div class="panelhead">
-        <div>
-          <h3 id="card-recommended">{{ title() }}</h3>
-          @if (recs().response; as r) {
-            <p class="smalltext muted">
-              Matched to your budget{{ r.appliedCountyIds.length ? ' and target counties' : '' }}
-              @if (r.sourceAsOf) {
-                · records as of {{ r.sourceAsOf | date: 'mediumDate' }}
-              }
-            </p>
-          }
-        </div>
-        <a class="smalltext" routerLink="/opportunities" [queryParams]="{ view: 'matches' }"
-          >View all</a
-        >
-      </div>
-      @if (recs().loading && !recs().response) {
-        <div class="rec-grid">
-          @for (i of placeholders(); track i) {
-            <div class="rec skeleton-card"></div>
-          }
-        </div>
-      } @else if (recs().error && !recs().response) {
-        <p class="sub" role="alert">Suggestions could not be loaded.</p>
-        <button type="button" class="btn small" (click)="load()">Retry</button>
-      } @else if (recs().response; as r) {
-        @if (items().length) {
-          <div class="rec-grid" [class.compact]="compact()">
-            @for (item of items(); track item.property.id) {
-              <a class="rec trace" [routerLink]="['/property', item.property.id]">
-                <span class="rec-rank">#{{ item.rank }}</span>
-                <b class="rec-address">{{
-                  item.property.address || 'Folio ' + item.property.folio
-                }}</b>
-                <span class="smalltext muted">
-                  {{ item.property.city || item.property.countyName }}
-                  @if (item.property.bedrooms !== null) {
-                    · {{ item.property.bedrooms }} bd
-                  }
-                  @if (item.property.bathrooms !== null) {
-                    · {{ item.property.bathrooms }} ba
-                  }
-                  @if (item.property.livingAreaSqft) {
-                    · {{ item.property.livingAreaSqft }} sqft
-                  }
-                </span>
-                @if (item.reasons.length) {
-                  <span class="rec-reasons">
-                    @for (reason of item.reasons.slice(0, 2); track reason) {
-                      <span class="tag"><gz-icon name="check" />{{ reason }}</span>
-                    }
-                  </span>
-                }
-              </a>
-            }
-          </div>
-          @if (r.status === 'PARTIAL' || r.limitations.length) {
-            <p class="sourcedata">{{ r.limitations.join(' ') }}</p>
-          }
-        } @else {
-          <div class="empty-state">
-            <gz-icon name="spark" />
-            <p>{{ emptyText(r.status) }}</p>
-            <a class="btn small" routerLink="/settings">Set preferences</a>
-          </div>
-        }
-      }
-    </section>
-  `,
-})
-export class Recommended {
-  private store = inject(Store);
-  title = input('Recommended for you');
-  limit = input(6);
-  compact = input(false);
-  recs = this.store.selectSignal(selectRecommendations);
-  items = computed(() => this.recs().response?.content.slice(0, this.limit()) ?? []);
-  placeholders = computed(() => Array.from({ length: Math.min(this.limit(), 6) }, (_, i) => i));
-  constructor() {
-    // Reuse suggestions the Opportunities page already loaded this session.
-    if (!this.recs().response && !this.recs().loading) this.load();
-  }
-  load() {
-    this.store.dispatch(RecommendationsActions.load({ limit: RECOMMENDATION_LIMIT }));
-  }
-  emptyText(status: string) {
-    return RECOMMENDATION_EMPTY[status] ?? 'No suggestions yet.';
-  }
-}
-/** The page and the dashboard ask for the same list, so the store holds one answer. */
+/** The Opportunities page and the overview ask for the same list, so the store holds one answer. */
 export const RECOMMENDATION_LIMIT = 20;
 
 const OPPORTUNITY_EMPTY: Record<string, string> = {
@@ -337,82 +293,4 @@ const OPPORTUNITY_EMPTY: Record<string, string> = {
 };
 export function opportunityEmptyText(status: string) {
   return OPPORTUNITY_EMPTY[status] ?? 'No scored opportunities yet.';
-}
-
-/**
- * The best-scored properties (GET /opportunities, highest score first). Scores are built from the
- * stored ZentraValue valuation and forecasts; they are research input, not advice.
- */
-@Component({
-  selector: 'gz-top-opportunities',
-  imports: [DecimalPipe, RouterLink, Icon],
-  template: `
-    <section class="panel dash-card" aria-labelledby="card-top-opportunities">
-      <div class="panelhead">
-        <div>
-          <h3 id="card-top-opportunities">Top-scored opportunities</h3>
-          @if (top().value; as p) {
-            <p class="smalltext muted">From ZentraValue forecasts · scoring {{ p.scoreVersion }}</p>
-          }
-        </div>
-        <a class="smalltext" routerLink="/opportunities">View all</a>
-      </div>
-      @if (top().loading && !top().value) {
-        <div class="rec-grid compact">
-          @for (i of placeholders(); track i) {
-            <div class="rec skeleton-card"></div>
-          }
-        </div>
-      } @else if (top().error && !top().value) {
-        <p class="sub" role="alert">Opportunities could not be loaded. {{ top().error }}</p>
-        <button type="button" class="btn small spacer" (click)="load()">Retry</button>
-      } @else if (top().value; as p) {
-        @if (p.results.content.length) {
-          <div class="rec-grid compact">
-            @for (o of p.results.content; track o.propertyId) {
-              <a class="rec trace" [routerLink]="['/property', o.propertyId]">
-                <span class="rec-rank"
-                  >Score {{ o.score | number: '1.0-0' }} / {{ o.maxScore }}</span
-                >
-                <b class="rec-address">{{ o.address || 'Folio ' + o.folio }}</b>
-                <span class="smalltext muted">
-                  {{ o.city || o.countyName }}
-                  @if (money(o.estimatedValue); as v) {
-                    · {{ v }}
-                  }
-                  @if (o.forecastGrowth1yPct !== null) {
-                    · {{ o.forecastGrowth1yPct > 0 ? '+' : ''
-                    }}{{ o.forecastGrowth1yPct | number: '1.1-1' }}% in 1 year
-                  }
-                </span>
-              </a>
-            }
-          </div>
-        } @else {
-          <div class="empty-state">
-            <gz-icon name="chart" />
-            <p>{{ emptyText(p.status) }}</p>
-          </div>
-        }
-      }
-    </section>
-  `,
-})
-export class TopOpportunities {
-  private store = inject(Store);
-  size = input(4);
-  private opportunities = this.store.selectSignal(selectOpportunities);
-  top = computed(() => this.opportunities().top);
-  placeholders = computed(() => Array.from({ length: this.size() }, (_, i) => i));
-  constructor() {
-    effect(() => {
-      const size = this.size();
-      untracked(() => this.load(size));
-    });
-  }
-  load(size = this.size()) {
-    this.store.dispatch(OpportunitiesActions.loadTop({ size }));
-  }
-  money = usdCompact;
-  emptyText = opportunityEmptyText;
 }

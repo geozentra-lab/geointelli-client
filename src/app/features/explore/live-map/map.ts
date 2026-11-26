@@ -1,16 +1,5 @@
 import { RequestStatus } from '../../../shared/components/request-status';
-import { LoadingSpinner } from '../../../shared/components/loading-spinner';
-import {
-  AfterViewInit,
-  Component,
-  DestroyRef,
-  OnDestroy,
-  computed,
-  inject,
-  input,
-  signal,
-} from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { AfterViewInit, Component, DestroyRef, OnDestroy, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { Store } from '@ngrx/store';
@@ -19,7 +8,6 @@ import { distinctUntilChanged, map } from 'rxjs';
 import { MapRenderService } from './services/map-render.service';
 import { SearchBar } from './components/search-bar/search-bar';
 import { PropertyDetailComponent } from '../../property-detail/property-detail-dialog/property-detail-component';
-import { PageHeading } from '../../../shared/components/page-heading';
 import { PropertiesActions as A } from '../../../store/properties/properties.actions';
 import { selectProperties } from '../../../store/properties/properties.selectors';
 import { ValuationActions as V } from '../../../store/valuation/valuation.actions';
@@ -32,6 +20,9 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { PredictionMap } from '../../../core/models/property_prediction_value';
 import { isoDate } from '../../../shared/components/value-forecast';
 import { compactPrice } from '../../property-detail/comparables-map.util';
+import { formatFolio, joinParts } from '../../../shared/data/format';
+import { loadLeafletCss } from '../../../shared/data/leaflet-css';
+import { GrowthPanel } from './growth-panel';
 import {
   Exclusion,
   GROWTH_METRICS,
@@ -48,24 +39,22 @@ import {
 } from './services/growth-grid';
 /** The backend returns at most this many address matches (AddressServiceImpl.RESULT_LIMIT). */
 const ADDRESS_MATCH_LIMIT = 20;
+/** Parcel boundaries are requested for the view from this zoom. */
+const PARCEL_ZOOM = 14;
+export type BaseLayer = 'street' | 'satellite' | 'terrain';
+/**
+ * Parcel search (DESIGN.md §5 live map): the map fills the page, with the search docked on the left.
+ * Parcels draw as ink outlines from zoom 14; a found or clicked parcel is copper and opens the
+ * property dialog. "Growth since last sale" swaps the parcel layer for the growth squares (§10).
+ */
 @Component({
   selector: 'gz-parcel-explorer',
-  imports: [
-    RequestStatus,
-    LoadingSpinner,
-    FormsModule,
-    RouterLink,
-    SearchBar,
-    PageHeading,
-    Icon,
-    DatePipe,
-    DecimalPipe,
-  ],
+  imports: [RequestStatus, RouterLink, SearchBar, Icon, DatePipe, DecimalPipe, GrowthPanel],
   providers: [MapRenderService],
   templateUrl: './map.html',
+  styleUrl: './map.css',
 })
 export class Map implements AfterViewInit, OnDestroy {
-  embedded = input(false);
   private store = inject(Store);
   private destroy = inject(DestroyRef);
   private render = inject(MapRenderService);
@@ -80,19 +69,40 @@ export class Map implements AfterViewInit, OnDestroy {
   readonly parcelLayer = computed(
     () => this.properties().layers?.find((l) => l.id === 'parcels') ?? null,
   );
-  heatmapActive = false;
-  readonly metrics = Object.values(GROWTH_METRICS);
+  /** The growth squares are shown instead of plain parcels. */
+  readonly heatmap = signal(false);
   readonly minReliable = MIN_RELIABLE_HOMES;
   metric = signal<GrowthMetric>('annual');
   /** What the squares currently show; null while the heatmap is off or has nothing to draw. */
   growth = signal<GrowthSummary | null>(null);
   /** Homes in view with a 1-year forecast: the forecast view is offered only when there are some. */
   forecastHomes = signal(0);
+  readonly zoom = signal(12);
+  readonly base = signal<BaseLayer>('street');
+  /**
+   * This page has asked for parcels. The parcel slice is shared with Explore's map and clearing it
+   * keeps its error, so an error from before this page asked for anything isn't shown here.
+   */
+  readonly asked = signal(false);
   private chosen = signal<number | null>(null);
   private broken = signal<Set<number>>(new Set());
-  base: 'street' | 'satellite' | 'terrain' = 'satellite';
+  readonly cellMeters = signal(0);
+  /** Why "Growth since last sale" can't be switched on right now, written in the legend. */
+  readonly growthBlocked = computed(() =>
+    this.valuation().bulkLoading || this.properties().parcels.length
+      ? ''
+      : this.zoom() < PARCEL_ZOOM
+        ? 'Zoom in further to see parcel boundaries and growth since last sale.'
+        : 'No parcel boundaries in view, so there is no growth to measure here.',
+  );
+
+  constructor() {
+    loadLeafletCss();
+  }
+
   ngAfterViewInit() {
     this.render.initMap();
+    this.zoom.set(this.render.getZoom());
     // The layer catalog rarely changes: read it once per session.
     if (this.properties().layers === null) this.store.dispatch(A.loadLayers());
     this.store
@@ -122,7 +132,7 @@ export class Map implements AfterViewInit, OnDestroy {
           });
         });
         if (folio) this.render.highlightAndZoomToFolio(folio);
-        if (this.heatmapActive) this.loadHeatmap();
+        if (this.heatmap()) this.loadHeatmap();
       });
     this.store
       .select(selectValuation)
@@ -132,9 +142,10 @@ export class Map implements AfterViewInit, OnDestroy {
         takeUntilDestroyed(this.destroy),
       )
       .subscribe((predictions) => {
-        if (this.heatmapActive && this.render.getZoom() >= 14) this.drawHeatmap(predictions);
+        if (this.heatmap() && this.render.getZoom() >= PARCEL_ZOOM) this.drawHeatmap(predictions);
       });
     this.render.onMoveEnd(() => {
+      this.zoom.set(this.render.getZoom());
       clearTimeout(this.timeout);
       this.timeout = setTimeout(() => this.loadVisible(), 300);
     });
@@ -143,6 +154,7 @@ export class Map implements AfterViewInit, OnDestroy {
     this.chosen.set(null);
     this.lastSearch = query;
     this.lastKey = '';
+    this.asked.set(true);
     this.store.dispatch(A.search({ query }));
   }
   /** A card picked from the address typeahead: fetch its boundary and zoom to it. */
@@ -150,14 +162,15 @@ export class Map implements AfterViewInit, OnDestroy {
     this.chosen.set(null);
     this.lastSearch = { mode: 'address', value: card.address || card.folio };
     this.lastKey = '';
+    this.asked.set(true);
     this.store.dispatch(A.addressMatched({ matches: [card] }));
   }
   private loadVisible() {
-    if (this.render.getZoom() < 14) {
+    if (this.render.getZoom() < PARCEL_ZOOM) {
       this.lastKey = '';
       this.store.dispatch(A.clearParcels());
       this.render.clearHeatmap();
-      this.heatmapActive = false;
+      this.heatmap.set(false);
       this.growth.set(null);
       return;
     }
@@ -168,6 +181,7 @@ export class Map implements AfterViewInit, OnDestroy {
     const key = bbox + '|' + this.render.getZoom();
     if (key === this.lastKey && !this.properties().error) return;
     this.lastKey = key;
+    this.asked.set(true);
     this.store.dispatch(A.loadParcels({ bbox }));
   }
   retry() {
@@ -184,14 +198,18 @@ export class Map implements AfterViewInit, OnDestroy {
   chooseMatch(match: PropertySearchItem) {
     if (this.isChosen(match, this.properties().addressMatches.indexOf(match))) return;
     this.chosen.set(match.id);
+    this.asked.set(true);
     this.store.dispatch(A.chooseMatch({ match }));
   }
   /** True when the backend may have cut the match list short, so the user should narrow the search. */
   matchesCapped() {
     return this.properties().addressMatches.length >= ADDRESS_MATCH_LIMIT;
   }
+  matchTitle(m: PropertySearchItem) {
+    return m.address || 'Folio ' + formatFolio(m.folio);
+  }
   matchPlace(m: PropertySearchItem) {
-    return [m.city, m.zip, m.countyName].filter(Boolean).join(' · ');
+    return joinParts(', ', m.city, m.zip, m.countyName) || 'Folio ' + formatFolio(m.folio);
   }
   photo(id: number) {
     if (this.broken().has(id)) return null;
@@ -201,12 +219,16 @@ export class Map implements AfterViewInit, OnDestroy {
   failedImage(id: number) {
     this.broken.update((ids) => new Set([...ids, id]));
   }
-  setLayer() {
-    this.render.setBaseLayer(this.base);
+  setBase(base: BaseLayer) {
+    this.base.set(base);
+    this.render.setBaseLayer(base);
   }
-  toggleHeatmap() {
-    this.heatmapActive = !this.heatmapActive;
-    if (this.heatmapActive) this.loadHeatmap();
+  /** "Parcels" or "Growth since last sale". */
+  showGrowth(on: boolean) {
+    if (on === this.heatmap()) return;
+    if (on && this.growthBlocked()) return;
+    this.heatmap.set(on);
+    if (on) this.loadHeatmap();
     else {
       this.render.clearHeatmap();
       this.growth.set(null);
@@ -214,7 +236,7 @@ export class Map implements AfterViewInit, OnDestroy {
   }
   setMetric(metric: GrowthMetric) {
     this.metric.set(metric);
-    if (this.heatmapActive) this.drawHeatmap(this.valuation().predictions);
+    if (this.heatmap()) this.drawHeatmap(this.valuation().predictions);
   }
   /** Groups the visible homes into squares for the chosen measure and draws them. */
   private drawHeatmap(predictions: PredictionMap) {
@@ -250,7 +272,7 @@ export class Map implements AfterViewInit, OnDestroy {
     this.forecastHomes.set(forecastHomes);
     const meters = cellMetersForZoom(this.render.getZoom());
     const cells = buildGrid(points, meters, def);
-    this.cellMeters = meters;
+    this.cellMeters.set(meters);
     this.growth.set(summarize(points, excluded, cells, def, [...sources.values()]));
     if (!cells.length) {
       this.render.clearHeatmap();
@@ -258,7 +280,6 @@ export class Map implements AfterViewInit, OnDestroy {
     }
     this.render.renderGrowthGrid(cells, def, meters, (cell) => this.describeCell(cell));
   }
-  cellMeters = 0;
   private describeCell(cell: GrowthCell) {
     const def = GROWTH_METRICS[this.metric()];
     const homes = cell.count === 1 ? '1 home' : cell.count + ' homes';
@@ -275,27 +296,6 @@ export class Map implements AfterViewInit, OnDestroy {
   focusCell(cell: GrowthCell) {
     this.render.focusCell(cell);
   }
-  fmt(value: number | null) {
-    return value === null ? '—' : formatGrowth(value, GROWTH_METRICS[this.metric()]);
-  }
-  histogramMax() {
-    return Math.max(1, ...(this.growth()?.histogram ?? []));
-  }
-  excludedText(s: GrowthSummary) {
-    const e = s.excluded;
-    return [
-      e.noSale && `${e.noSale} with no recorded sale`,
-      e.recentSale && `${e.recentSale} sold within the last year`,
-      e.noForecast && `${e.noForecast} without a forecast`,
-      e.noEstimate && `${e.noEstimate} without an estimate`,
-    ]
-      .filter(Boolean)
-      .join(' · ');
-  }
-  excludedCount(s: GrowthSummary) {
-    const e = s.excluded;
-    return e.noSale + e.recentSale + e.noForecast + e.noEstimate;
-  }
   loadHeatmap() {
     const propertyIds = [
       ...new Set(
@@ -305,7 +305,7 @@ export class Map implements AfterViewInit, OnDestroy {
       ),
     ];
     if (!propertyIds.length) {
-      this.heatmapActive = false;
+      this.heatmap.set(false);
       return;
     }
     this.store.dispatch(V.loadBulk({ propertyIds }));

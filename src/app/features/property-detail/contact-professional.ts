@@ -12,21 +12,22 @@ import {
 } from '../../core/models/contact';
 
 /**
- * Lets a signed-in user ask a registered professional to contact them about this property.
+ * Lets a signed-in user ask a registered professional to contact them about this property. The
+ * property page shows it in the "Ask about this property" sheet (DESIGN.md §5), not under every tab.
  * The backend requires explicit, versioned consent to share the details below with that person.
  */
 @Component({
   selector: 'gz-contact-professional',
   imports: [FormsModule, DatePipe, RequestStatus],
-  template: `<section class="panel section" aria-labelledby="contact-title">
-    <h3 id="contact-title">Talk to a professional about this property</h3>
+  template: `<div class="contact">
+    <p class="contact-lede">
+      A registered real-estate professional you choose can contact you about this property.
+    </p>
     @if (!w.auth.isLoggedIn()) {
-      <p class="sub spacer">
-        Sign in to ask a registered real-estate professional to contact you about this property.
-      </p>
-      <button type="button" class="btn primary spacer" (click)="w.signIn()">Sign in</button>
+      <p class="contact-lede">Sign in to send a request.</p>
+      <button type="button" class="btn primary" (click)="w.signIn()">Sign in</button>
     } @else if (sent(); as r) {
-      <div class="insight section" role="status">
+      <div class="insight" role="status">
         <strong>Request sent {{ r.submittedAt | date: 'medium' }}.</strong>
         {{ professionalName(r.professionalUserId) }} can now see your details and message and will
         contact you by
@@ -43,13 +44,13 @@ import {
         (retry)="loadProfessionals()"
       />
       @if (state().professionalsLoaded && !choices().length) {
-        <p class="sub spacer">
+        <p class="contact-lede">
           No registered professionals are available yet. Check back later, or save this property to
           come back to it.
         </p>
       } @else if (state().professionalsLoaded) {
         <form #f="ngForm" (ngSubmit)="f.valid && hasContact() && submit()" novalidate>
-          <fieldset class="formgrid section" [disabled]="state().submitting">
+          <fieldset class="formgrid contact-fields" [disabled]="state().submitting">
             <div class="formfield full">
               <label for="contactPro">Professional</label
               ><select
@@ -140,19 +141,49 @@ import {
             >
           </fieldset>
           <gz-request-status [error]="state().submitError" (retry)="submit()" />
-          <button
-            class="btn primary spacer"
-            [disabled]="state().submitting || !draft.consent || !draft.professionalUserId"
-          >
-            {{ state().submitting ? 'Sending…' : 'Send request' }}
-          </button>
+          <div class="contact-send">
+            <button
+              class="btn primary"
+              [disabled]="state().submitting || !draft.consent || !draft.professionalUserId"
+              [attr.aria-describedby]="sendBlocked() ? 'contact-send-why' : null"
+            >
+              {{ state().submitting ? 'Sending…' : 'Send request' }}
+            </button>
+            @if (!state().submitting && sendBlocked(); as why) {
+              <span class="contact-why" id="contact-send-why">{{ why }}</span>
+            }
+          </div>
         </form>
       }
     }
-  </section>`,
+  </div>`,
   styles: `
+    .contact-lede {
+      margin: 0 0 var(--sp-12);
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+      max-width: var(--measure);
+    }
+    /* One column: the form sits in a 420 px sheet. */
+    .contact-fields {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--sp-12);
+    }
     .full {
       grid-column: 1/-1;
+    }
+    /* A disabled button says why, next to it (DESIGN.md §12). */
+    .contact-send {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--sp-8) var(--sp-12);
+      margin-top: var(--sp-16);
+    }
+    .contact-why {
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      color: var(--ink-2);
     }
   `,
 })
@@ -203,6 +234,14 @@ export class ContactProfessional {
   }
   loadProfessionals() {
     this.w.store.dispatch(A.loadProfessionals());
+  }
+  /** Why Send is disabled, in words; empty when it can be sent. */
+  sendBlocked() {
+    const d = this.draft;
+    if (!d.professionalUserId && !d.consent) return 'Choose a professional and agree to share your details.';
+    if (!d.professionalUserId) return 'Choose a professional.';
+    if (!d.consent) return 'Agree to share your details to send.';
+    return '';
   }
   hasContact() {
     return !!(this.draft.contactEmail.trim() || this.draft.contactPhone.trim());

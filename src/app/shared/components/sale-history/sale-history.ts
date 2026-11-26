@@ -1,8 +1,12 @@
 import { LoadingSpinner } from '../loading-spinner';
 import { Component, computed, input, signal } from '@angular/core';
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CurrencyPipe } from '@angular/common';
 import { Sale } from '../../../core/models/sale';
 import { PropertyValuePrediction } from '../../../core/models/property_prediction_value';
+import { ChartBandPoint, ChartPoint, TimeChart } from '../../charts/time-chart';
+import { monthLabel } from '../../charts/scale';
+import { Sort, TABLE_KIT, sortRows } from '../../table';
+import { countOf, formatRecordDate } from '../../data/format';
 
 /** The estimate the chart appends: a legacy prediction or the explained valuation both fit. */
 export type EstimatePoint = Pick<PropertyValuePrediction, 'predictedPrice' | 'predictionDate'>;
@@ -13,6 +17,7 @@ export interface PriceHistoryPoint {
   estimate: boolean;
 }
 
+/** Plottable sales in date order (a positive price and a real date), then the estimate. */
 export function priceHistory(
   sales: readonly Sale[],
   prediction: EstimatePoint | null,
@@ -37,52 +42,84 @@ export function priceHistory(
   return points;
 }
 
+/** One row of the sales table, with every missing field kept as null (shown as Unavailable). */
+export interface SaleRow {
+  date: string | null;
+  price: number | null;
+  type: string | null;
+  instrument: string | null;
+}
+const text = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+export function saleRows(sales: readonly Sale[]): SaleRow[] {
+  return sales.map((s) => ({
+    date: Number.isFinite(Date.parse(s.saleDate)) ? s.saleDate : null,
+    price: Number.isFinite(s.salePrice) ? s.salePrice : null,
+    type: text(s.saleType),
+    instrument: text(s.instrumentNumber),
+  }));
+}
+
+/**
+ * Sales and the ZentraValue over time (DESIGN.md §11): the time-axis chart, then its table twin,
+ * the recorded sales (date, price, type, instrument). Both reflow at phone width; the sale tiles
+ * that were clipped on phones are gone (§14, bug 3).
+ */
 @Component({
   selector: 'gz-sale-history',
-  imports: [LoadingSpinner, CurrencyPipe, DatePipe],
+  imports: [LoadingSpinner, CurrencyPipe, TimeChart, ...TABLE_KIT],
   templateUrl: './sale-history.html',
   styleUrl: './sale-history.css',
 })
 export class SaleHistory {
-  dateValue(date: string) {
-    return new Date(date);
-  }
+  private static next = 0;
+  readonly uid = 'sales-' + SaleHistory.next++;
   sales = input<readonly Sale[]>([]);
   prediction = input<EstimatePoint | null>(null);
+  /** The monthly ZentraValue (published valuations) and its 80% range, when the page has them. */
+  line = input<readonly ChartPoint[]>([]);
+  band = input<readonly ChartBandPoint[]>([]);
+  /** h2 on the property page (under its h1), h3 inside the live-map dialog. */
+  headingLevel = input<2 | 3>(3);
   // A failed estimate is reported once, by the valuation panel with its retry; the chart just omits it.
   loading = input(false);
-  active = signal<number | null>(null);
-  hovered = signal<number | null>(null);
-  focused = signal<number | null>(null);
-  highlighted = computed(() => this.hovered() ?? this.focused());
-  tooltip = computed(() => {
-    const index = this.highlighted();
-    return index === null ? null : (this.chart().points[index] ?? null);
-  });
+  readonly sort = signal<Sort | null>({ key: 'date', dir: 'desc' });
+
   points = computed(() => priceHistory(this.sales(), this.prediction()));
-  chart = computed(() => {
-    const points = this.points();
-    const prices = points.map((p) => p.price);
-    const low = Math.min(...prices),
-      high = Math.max(...prices);
-    const padding = Math.max((high - low) * 0.2, high * 0.08, 1);
-    const min = Math.max(0, low - padding),
-      max = high + padding;
-    const plotted = points.map((p, i) => ({
-      ...p,
-      x: points.length === 1 ? 450 : 100 + (i * 700) / (points.length - 1),
-      y: 210 - ((p.price - min) / (max - min)) * 170,
-    }));
-    const sales = plotted.filter((p) => !p.estimate);
-    const last = plotted.at(-1),
-      previous = plotted.at(-2);
-    return {
-      points: plotted,
-      line: sales.map((p) => `${p.x},${p.y}`).join(' '),
-      estimateLine:
-        last?.estimate && previous ? `${previous.x},${previous.y} ${last.x},${last.y}` : '',
-      ticks: [0, 0.5, 1].map((t) => ({ price: min + (max - min) * t, y: 210 - t * 170 })),
-    };
+  readonly chartPoints = computed<ChartPoint[]>(() =>
+    this.points()
+      .filter((p) => !p.estimate)
+      .map((p) => ({ date: new Date(p.date!), value: p.price })),
+  );
+  readonly estimate = computed(() => this.points().find((p) => p.estimate) ?? null);
+  /** The estimate on the time axis; an undated estimate can't be placed and is only listed. */
+  readonly estimatePoint = computed<ChartPoint | null>(() => {
+    const e = this.estimate();
+    return e?.date ? { date: new Date(e.date), value: e.price } : null;
   });
-  selected = computed(() => this.points()[this.active() ?? this.points().length - 1] ?? null);
+  readonly rows = computed(() => saleRows(this.sales()));
+  readonly sortedRows = computed(() =>
+    sortRows(this.rows(), this.sort(), (r, key) =>
+      key === 'date' ? (r.date ? Date.parse(r.date) : null) : key === 'price' ? r.price : null,
+    ),
+  );
+  /** Transfers recorded at $0 are listed but not plotted. */
+  readonly zeroTransfers = computed(() => this.rows().filter((r) => r.price === 0).length);
+  readonly hasChart = computed(
+    () => this.chartPoints().length > 0 || !!this.estimatePoint() || this.line().length > 1,
+  );
+  /** What the chart shows, from the records themselves: "2 recorded sales; the last 10 monthly…". */
+  readonly lede = computed(() => {
+    const sales = this.chartPoints().length;
+    const line = [...this.line()].sort((a, b) => +a.date - +b.date);
+    const parts = [sales ? countOf(sales, 'recorded sale') : 'No sale with a price on record'];
+    if (line.length > 1)
+      parts.push(
+        `the last ${line.length} monthly ZentraValues, ${monthLabel(line[0].date)} to ${monthLabel(line.at(-1)!.date)}`,
+      );
+    else if (this.estimatePoint()) parts.push('the current ZentraValue');
+    return parts.join('; ') + '.';
+  });
+  date(value: string | null) {
+    return formatRecordDate(value);
+  }
 }

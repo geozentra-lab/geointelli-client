@@ -1,6 +1,12 @@
 import { Component, Injectable, inject } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialog, MatDialogModule } from '@angular/material/dialog';
+import {
+  MAT_DIALOG_DATA,
+  MatDialog,
+  MatDialogModule,
+  MatDialogRef,
+} from '@angular/material/dialog';
 import { firstValueFrom } from 'rxjs';
+import { holdShellForDialog } from '../layout/shell-layer';
 export interface Confirmation {
   title: string;
   message: string;
@@ -19,18 +25,23 @@ export interface Confirmation {
     >`,
   styles: `
     p {
-      line-height: 1.7;
+      line-height: 1.5;
       color: var(--ink-2);
       margin: 0;
+      max-width: var(--measure);
     }
     mat-dialog-actions {
-      padding: 16px 24px 24px;
-      gap: 8px;
+      padding: var(--sp-16) var(--sp-24) var(--sp-24);
+      gap: var(--sp-8);
     }
   `,
 })
 export class ConfirmDialog {
   data = inject<Confirmation>(MAT_DIALOG_DATA);
+  constructor() {
+    // The shell stays inert and dimmed behind the dialog (DESIGN.md §14, bug 2).
+    holdShellForDialog(inject(MatDialogRef, { optional: true }) ?? undefined);
+  }
 }
 @Injectable({ providedIn: 'root' })
 export class ConfirmationService {

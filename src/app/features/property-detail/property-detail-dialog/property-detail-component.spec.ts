@@ -55,13 +55,19 @@ describe('Live property dialog', () => {
     const el = fixture.nativeElement as HTMLElement;
     const text = el.textContent!.replace(/\s+/g, ' ');
     expect(text).toContain('$300,000');
-    expect(text).toContain('$250,000 – $450,000');
+    const ends = el.querySelector('.range-ends')!.textContent!.replace(/\s+/g, ' ');
+    expect(ends).toContain('$250,000');
+    expect(ends).toContain('80% range');
+    expect(ends).toContain('$450,000');
     expect(text).toContain('Medium confidence');
     expect(text).toContain('(+2.0%)');
     expect(text).toContain('$210,000');
-    // (300k − 250k) / (450k − 250k) = 25% along the range, not a fixed position.
-    const marker = el.querySelector<HTMLElement>('.range-track i')!;
-    expect(marker.style.left).toBe('25%');
+    // No 90% range was sent, so the track spans the 80% range widened by 25% on each side
+    // ($200,000 to $500,000): the band and the estimate's tick sit where the data puts them.
+    const band = el.querySelector<HTMLElement>('.range-track i')!;
+    expect(band.style.left).toBe('16.7%');
+    expect(band.style.right).toBe('16.7%');
+    expect(el.querySelector<HTMLElement>('.range-track i.pt')!.style.left).toBe('33.3%');
   });
 
   it('lists the reasons instead of a value when the property is unsupported', () => {
@@ -74,8 +80,13 @@ describe('Live property dialog', () => {
       });
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).toContain('Above the tested range.');
-    expect(el.querySelector('.value-card')).toBeNull();
+    // The figure and range become the Unavailable marker, with the backend's reason on it.
+    expect(el.querySelector('.zv-fig')).toBeNull();
+    expect(el.querySelector('.range-track')).toBeNull();
+    const marker = el.querySelector('.zv-na.na')!;
+    expect(marker.textContent).toContain('Unavailable');
+    expect(marker.textContent).toContain('Above the tested range.');
+    expect(el.textContent).not.toContain('$0');
   });
 
   it('lets the home be added to the comparison from the dialog', () => {

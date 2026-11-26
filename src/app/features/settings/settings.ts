@@ -1,165 +1,115 @@
-import { Component, OnInit, effect, inject } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, computed, effect, inject, untracked } from '@angular/core';
 import { Workspace } from '../../shared/data/workspace';
 import { PageHeading } from '../../shared/components/page-heading';
 import { RequestStatus } from '../../shared/components/request-status';
-import { CountyPicker } from '../../shared/components/county-picker';
+import { ProfileForm } from './profile-form';
+import { PreferencesForm } from './preferences-form';
+import { NotificationForm } from './notification-form';
 import { RealtorLicense } from './realtor-license';
-import { UserActions as A } from '../../store/user/user.actions';
-import { UserPreferencesDTO, BackendPersona, UserDTO } from '../../core/models/api';
-import { selectLocations } from '../../store/locations/locations.selectors';
-import { DatePipe } from '@angular/common';
-import { NotificationPreferencesActions as N } from '../../store/notification-preferences/notification-preferences.actions';
-import { selectNotificationPreferences } from '../../store/notification-preferences/notification-preferences.selectors';
-import { EmailCadence, NotificationPreferencesDTO } from '../../core/models/api';
-const KNOWN_EVENTS = ['NEW_MATCH', 'CONTACT_REQUEST', 'VALUATION_CHANGED'];
+import { AccountType } from './account-type';
+
+/**
+ * Settings (DESIGN.md §5 Record, Settings): h1 "Settings" with Sign out on the right, then one
+ * section each for the profile (name), the account type (backend SCRUM-204), property preferences,
+ * notifications and, for realtors or anyone with a submission, the realtor license.
+ * Each section is its own form with its own Save; none of them reloads the others.
+ */
 @Component({
-  imports: [FormsModule, DatePipe, PageHeading, RequestStatus, CountyPicker, RealtorLicense],
-  templateUrl: './settings.html',
+  imports: [PageHeading, RequestStatus, ProfileForm, AccountType, PreferencesForm, NotificationForm, RealtorLicense],
+  template: `
+    <div class="se-page">
+      <gz-heading title="Settings" [subtitle]="subtitle()">
+        @if (w.auth.isLoggedIn()) {
+          <button type="button" class="btn" (click)="w.signOut()">Sign out</button>
+        }
+      </gz-heading>
+      @if (!w.auth.isLoggedIn()) {
+        <section class="se-guest" aria-labelledby="se-guest-title">
+          <h2 id="se-guest-title">Sign in to change your settings</h2>
+          <p>Your profile, property preferences and notifications are kept with your account.</p>
+          <div class="se-buttons">
+            <button type="button" class="btn primary" (click)="w.signIn()">Sign in</button>
+            <button type="button" class="btn" (click)="w.signUp()">Create account</button>
+          </div>
+        </section>
+      } @else if (w.account().profile) {
+        <div class="se-sections">
+          <gz-profile-form />
+          <gz-account-type />
+          <gz-preferences-form />
+          <gz-notification-form />
+          @if (showLicense()) {
+            <gz-realtor-license />
+          }
+        </div>
+      } @else {
+        <gz-request-status
+          [loading]="w.account().loading || !w.account().error"
+          loadingText="Loading your profile…"
+          [error]="w.account().error"
+          (retry)="w.reloadUser()"
+        />
+      }
+    </div>
+  `,
+  styles: `
+    .se-page {
+      max-width: 1200px;
+    }
+    .se-sections {
+      display: grid;
+      gap: var(--sp-24);
+    }
+    .se-guest {
+      padding: var(--sp-16) var(--sp-24) var(--sp-24);
+      background: var(--surface);
+      border-top: 2px solid var(--ink);
+      max-width: 720px;
+    }
+    .se-guest h2 {
+      margin: 0;
+      font-size: var(--fs-section);
+      line-height: var(--lh-section);
+    }
+    .se-guest p {
+      margin: var(--sp-8) 0 var(--sp-16);
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+      max-width: var(--measure);
+    }
+    .se-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--sp-8);
+    }
+    @media (max-width: 700px) {
+      .se-sections {
+        gap: var(--sp-16);
+      }
+    }
+  `,
 })
-export class Settings implements OnInit {
-  w = inject(Workspace);
-  locations = this.w.store.selectSignal(selectLocations);
-  firstName = '';
-  lastName = '';
-  persona: BackendPersona = 'USER';
-  preferences: UserPreferencesDTO = {
-    minBudget: null,
-    maxBudget: null,
-    targetLocations: [],
-    investmentGoals: [],
-  };
-  goals = '';
-  notify = this.w.store.selectSignal(selectNotificationPreferences);
-  delivery = {
-    inAppEnabled: true,
-    emailEnabled: false,
-    newMatch: true,
-    contactRequest: true,
-    valuationChanged: true,
-    otherEvents: [] as string[],
-    emailCadence: 'DAILY' as EmailCadence,
-  };
-  private seenDelivery: NotificationPreferencesDTO | null = null;
-  private seenProfile: UserDTO | null = null;
-  private seenPreferences: UserPreferencesDTO | null = null;
+export class Settings {
+  readonly w = inject(Workspace);
+  /** Realtors, and anyone who has submitted a license (the profile carries its latest status). */
+  readonly showLicense = computed(() => {
+    const p = this.w.account().profile;
+    return this.w.accountType() === 'realtor' || !!p?.realtorLicenseStatus;
+  });
+  readonly subtitle = computed(() =>
+    this.w.auth.isLoggedIn()
+      ? 'Your profile, account type, property preferences and notifications' + (this.showLicense() ? ', and your realtor license.' : '.')
+      : '',
+  );
+
   constructor() {
+    // The profile, once signed in, when nothing has asked for it yet.
     effect(() => {
-      const p = this.w.account().profile;
-      if (p && p !== this.seenProfile) {
-        this.seenProfile = p;
-        this.firstName = p.firstName ?? '';
-        this.lastName = p.lastName ?? '';
-        this.persona = p.persona;
-      }
+      if (!this.w.auth.isLoggedIn()) return;
+      untracked(() => {
+        const a = this.w.account();
+        if (!a.profile && !a.loading) this.w.reloadUser();
+      });
     });
-    effect(() => {
-      const p = this.notify().preferences;
-      if (p && p !== this.seenDelivery) {
-        this.seenDelivery = p;
-        this.delivery = {
-          inAppEnabled: p.inAppEnabled,
-          emailEnabled: p.emailEnabled,
-          newMatch: p.enabledEventTypes.includes('NEW_MATCH'),
-          contactRequest: p.enabledEventTypes.includes('CONTACT_REQUEST'),
-          valuationChanged: p.enabledEventTypes.includes('VALUATION_CHANGED'),
-          // The PUT replaces the whole set: keep event types this form does not know yet.
-          otherEvents: p.enabledEventTypes.filter((t) => !KNOWN_EVENTS.includes(t)),
-          emailCadence: p.emailCadence,
-        };
-      }
-    });
-    effect(() => {
-      const p = this.w.account().preferences;
-      if (p && p !== this.seenPreferences) {
-        this.seenPreferences = p;
-        this.preferences = structuredClone(p);
-        this.goals = p.investmentGoals.join('\n');
-      }
-    });
-  }
-  ngOnInit() {
-    if (!this.w.account().profile) this.w.reloadUser();
-    if (this.w.auth.isLoggedIn() && !this.notify().preferences) this.loadDelivery();
-  }
-  loadPreferences() {
-    this.w.store.dispatch(A.loadPreferences());
-  }
-  loadDelivery() {
-    this.w.store.dispatch(N.load());
-  }
-  saveDelivery() {
-    if (this.notify().saving || !this.w.requireAccount()) return;
-    const d = this.delivery;
-    this.w.store.dispatch(
-      N.save({
-        request: {
-          inAppEnabled: d.inAppEnabled,
-          emailEnabled: d.emailEnabled,
-          enabledEventTypes: [
-            ...(d.newMatch ? ['NEW_MATCH'] : []),
-            ...(d.contactRequest ? ['CONTACT_REQUEST'] : []),
-            ...(d.valuationChanged ? ['VALUATION_CHANGED'] : []),
-            ...d.otherEvents,
-          ],
-          emailCadence: d.emailCadence,
-        },
-      }),
-    );
-  }
-  saveProfile() {
-    if (this.w.account().savingProfile || !this.w.requireAccount()) return;
-    const request = {
-      ...(this.firstName.trim() ? { firstName: this.firstName.trim() } : {}),
-      ...(this.lastName.trim() ? { lastName: this.lastName.trim() } : {}),
-      persona: this.persona,
-    };
-    this.w.store.dispatch(A.saveProfile({ request }));
-  }
-  savePreferences() {
-    if (this.w.account().savingPreferences || !this.w.requireAccount()) return;
-    const p = this.preferences;
-    if (p.minBudget !== null && p.maxBudget !== null && p.minBudget > p.maxBudget) {
-      this.w.toast('Minimum budget must not exceed maximum budget.');
-      return;
-    }
-    const goals = this.goals
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (goals.length > 20 || goals.some((g) => g.length > 200)) {
-      this.w.toast('Use up to 20 goals, with at most 200 characters each.');
-      return;
-    }
-    this.w.store.dispatch(
-      A.savePreferences({
-        preferences: {
-          ...p,
-          targetLocations: p.targetLocations.map(({ countyId }) => ({ countyId })),
-          investmentGoals: this.goals
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean),
-        },
-      }),
-    );
-  }
-  addCounty() {
-    const county = this.locations().counties.find((c) => c.countyId === this.locations().countyId);
-    if (
-      county &&
-      !this.preferences.targetLocations.some((c) => c.countyId === county.countyId) &&
-      this.preferences.targetLocations.length < 20
-    )
-      this.preferences = {
-        ...this.preferences,
-        targetLocations: [...this.preferences.targetLocations, county],
-      };
-  }
-  removeCounty(id: number) {
-    this.preferences = {
-      ...this.preferences,
-      targetLocations: this.preferences.targetLocations.filter((c) => c.countyId !== id),
-    };
   }
 }

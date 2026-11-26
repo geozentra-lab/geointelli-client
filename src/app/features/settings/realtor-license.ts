@@ -1,221 +1,248 @@
 import {
   Component,
   ElementRef,
-  OnInit,
   afterNextRender,
   computed,
   effect,
   inject,
+  signal,
+  untracked,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Workspace } from '../../shared/data/workspace';
 import { RequestStatus } from '../../shared/components/request-status';
+import { RECORD_KIT } from '../../shared/components/record';
+import { TABLE_KIT } from '../../shared/table';
+import { formatLocalDate, formatRecordDate } from '../../shared/data/format';
 import { RealtorLicenseActions as A } from '../../store/realtor-license/realtor-license.actions';
 import { selectRealtorLicense } from '../../store/realtor-license/realtor-license.selectors';
-import { LICENSE_STATUS_LABELS } from '../../core/models/realtor-license';
+import { LICENSE_STATUS_LABELS, RealtorLicenseVerificationDTO } from '../../core/models/realtor-license';
 
-const today = () => new Date().toISOString().slice(0, 10);
+/** Today in the viewer's own calendar, as yyyy-MM-dd (the earliest expiry the backend accepts). */
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const STATES: Record<string, string> = { FL: 'Florida' };
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Realtor license verification (SCRUM-200), applicant side: submit a Florida license for review,
- * follow its status and see earlier submissions. A new submission is possible only after a
- * rejection; an administrator takes the decision.
+ * Settings, Realtor license (SCRUM-200), applicant side: the latest submission as ruled rows with its
+ * status in words, a rejection's reason as a sentence, the form when a submission is allowed (none
+ * yet, or after a rejection: prefilled from the rejected one), and earlier submissions as a table.
+ * An administrator takes the decision.
  */
 @Component({
   selector: 'gz-realtor-license',
-  imports: [DatePipe, FormsModule, RequestStatus],
+  imports: [FormsModule, RequestStatus, ...RECORD_KIT, ...TABLE_KIT],
+  styleUrl: './settings.css',
   template: `
-    <section id="license" class="panel section" aria-labelledby="license-title">
-      <div class="panelhead">
-        <div>
-          <h3 id="license-title">Realtor license</h3>
-          <p class="smalltext muted">
-            Verification is separate from the experience you choose above.
-          </p>
-        </div>
+    <section id="license" class="se" aria-labelledby="license-title">
+      <div class="se-head">
+        <h2 id="license-title">Realtor license</h2>
+        <p>An administrator checks it against the Florida record. The CRM opens once it is verified.</p>
         @if (latest(); as l) {
-          <span
-            class="tag"
-            [class.green]="l.status === 'VERIFIED'"
-            [class.amber]="l.status === 'PENDING_REVIEW'"
-            [class.red]="l.status === 'REJECTED'"
-            >{{ statusLabel(l.status) }}</span
-          >
+          <p class="se-meta" [class.attention]="l.status === 'REJECTED'">{{ statusLabel(l.status) }}</p>
         }
       </div>
-      <gz-request-status
-        [loading]="s().history.loading && !s().history.value"
-        loadingText="Loading your license…"
-        [error]="s().history.error"
-        (retry)="load()"
-      />
-      @if (latest(); as l) {
-        <div class="lineitem">
-          <span>License</span><strong>{{ l.licensingState }} {{ l.licenseNumber }}</strong>
-        </div>
-        <div class="lineitem">
-          <span>Holder</span><strong>{{ l.licenseHolderName }}</strong>
-        </div>
-        @if (l.brokerageName) {
-          <div class="lineitem">
-            <span>Brokerage</span><strong>{{ l.brokerageName }}</strong>
-          </div>
+      <div class="se-body">
+        <gz-request-status
+          [loading]="s().history.loading && !s().history.value"
+          loadingText="Loading your license…"
+          [error]="s().history.error"
+          (retry)="load()"
+        />
+        @if (latest(); as l) {
+          @if (l.status === 'PENDING_REVIEW') {
+            <p class="se-text">Waiting for an administrator’s review. You can submit again only if it is rejected.</p>
+          } @else if (l.status === 'REJECTED') {
+            <p class="se-text attention" role="status">
+              Not verified{{ l.decidedAt ? ' on ' + day(l.decidedAt) : '' }}:
+              {{ l.rejectionReason ? l.rejectionReason + '.' : 'no reason was given.' }}
+              Correct the details below and submit again.
+            </p>
+          }
+          <gz-record-group heading="Latest submission">
+            <div gz-record-row label="Status">{{ statusLabel(l.status) }}</div>
+            <div gz-record-row label="License number">{{ l.licenseNumber }}</div>
+            <div gz-record-row label="State">{{ stateName(l.licensingState) }}</div>
+            <div gz-record-row label="Name on the license">{{ l.licenseHolderName }}</div>
+            @if (l.brokerageName) {
+              <div gz-record-row label="Brokerage">{{ l.brokerageName }}</div>
+            }
+            @if (l.workEmail) {
+              <div gz-record-row label="Work email">{{ l.workEmail }}</div>
+            }
+            @if (l.licenseExpirationDate) {
+              <div gz-record-row label="Expires">{{ calendar(l.licenseExpirationDate) }}</div>
+            }
+            <div gz-record-row label="Submitted">{{ day(l.submittedAt) }}</div>
+            @if (l.decidedAt) {
+              <div gz-record-row label="Decided">{{ day(l.decidedAt) }}</div>
+            }
+          </gz-record-group>
         }
-        <div class="lineitem">
-          <span>Submitted</span><strong>{{ l.submittedAt | date: 'medium' }}</strong>
-        </div>
-        @if (l.status === 'PENDING_REVIEW') {
-          <p class="insight section">
-            Your license is waiting for review. You will be able to submit again only if it is
-            rejected.
-          </p>
-        } @else if (l.status === 'REJECTED') {
-          <p class="insight warning section" role="status">
-            Not verified{{ l.decidedAt ? ' on ' + (l.decidedAt | date: 'mediumDate') : '' }}:
-            {{ l.rejectionReason || 'no reason was given' }}. Correct the details and submit again.
-          </p>
-        }
-      }
-      @if (canSubmit()) {
-        <form class="section" #lf="ngForm" (ngSubmit)="lf.valid && submit()">
-          <fieldset class="formgrid" [disabled]="s().submitting">
-            <div class="formfield">
-              <label for="lic-holder">Name on the license</label
-              ><input id="lic-holder" name="holder" maxlength="160" required [(ngModel)]="holder" />
-            </div>
-            <div class="formfield">
-              <label for="lic-state">State</label
-              ><select id="lic-state" name="state" [(ngModel)]="state">
-                <option value="FL">Florida</option>
-              </select>
-            </div>
-            <div class="formfield">
-              <label for="lic-number">License number</label
-              ><input id="lic-number" name="number" maxlength="40" required [(ngModel)]="number" />
-            </div>
-            <div class="formfield">
-              <label for="lic-expires">Expires on (optional)</label
-              ><input
-                id="lic-expires"
-                name="expires"
-                type="date"
-                [min]="minDate"
-                max="9999-12-31"
-                [(ngModel)]="expires"
-              />
-            </div>
-            <div class="formfield">
-              <label for="lic-brokerage">Brokerage (optional)</label
-              ><input id="lic-brokerage" name="brokerage" maxlength="160" [(ngModel)]="brokerage" />
-            </div>
-            <div class="formfield">
-              <label for="lic-email">Work email (optional)</label
-              ><input
-                id="lic-email"
-                name="email"
-                type="email"
-                maxlength="254"
-                email
-                [(ngModel)]="email"
-              />
-            </div>
-            <div class="actions full">
-              <button class="btn primary" [disabled]="lf.invalid || s().submitting">
+        @if (canSubmit()) {
+          @if (!latest()) {
+            <p class="se-text">Submit your Florida license for review. An administrator checks it against the state record.</p>
+          }
+          <form (ngSubmit)="submit()" aria-label="Submit your license for verification">
+            <fieldset>
+              <legend>{{ latest() ? 'Submit again' : 'Your license' }}</legend>
+              <div class="se-fields">
+                <div class="formfield">
+                  <label for="lic-holder">Name on the license</label>
+                  <input id="lic-holder" name="holder" maxlength="160" autocomplete="name" [ngModel]="holder()" (ngModelChange)="holder.set($event)" />
+                </div>
+                <div class="formfield">
+                  <label for="lic-number">License number</label>
+                  <input id="lic-number" name="number" maxlength="40" [ngModel]="number()" (ngModelChange)="number.set($event)" />
+                </div>
+                <div class="formfield">
+                  <label for="lic-expires">Expires on <span class="optional">(optional)</span></label>
+                  <input id="lic-expires" name="expires" type="date" [min]="minDate" max="9999-12-31" [ngModel]="expires()" (ngModelChange)="expires.set($event ?? '')" />
+                </div>
+                <div class="formfield">
+                  <label for="lic-brokerage">Brokerage <span class="optional">(optional)</span></label>
+                  <input id="lic-brokerage" name="brokerage" maxlength="160" [ngModel]="brokerage()" (ngModelChange)="brokerage.set($event)" />
+                </div>
+                <div class="formfield se-wide">
+                  <label for="lic-email">Work email <span class="optional">(optional)</span></label>
+                  <input id="lic-email" name="email" type="email" maxlength="254" autocomplete="email" [ngModel]="email()" (ngModelChange)="email.set($event)" />
+                </div>
+              </div>
+              <p class="se-hint">State: Florida. Only Florida licenses can be verified today.</p>
+            </fieldset>
+            <div class="se-actions">
+              <button class="btn primary" [attr.aria-disabled]="why() || s().submitting ? 'true' : null"
+                [attr.aria-describedby]="why() ? 'lic-why' : null">
                 {{ s().submitting ? 'Submitting…' : 'Submit for verification' }}
               </button>
+              @if (why(); as reason) {
+                <p class="se-why" id="lic-why">{{ reason }}</p>
+              }
             </div>
-          </fieldset>
-        </form>
-        @if (s().submitError; as error) {
-          <p class="field-error" role="alert">{{ error }}</p>
-        }
-        <p class="sourcedata">Only Florida licenses can be verified today.</p>
-      }
-      @if (earlier().length) {
-        <details class="spacer">
-          <summary>Earlier submissions ({{ earlier().length }})</summary>
-          <ul class="list">
-            @for (h of earlier(); track h.id) {
-              <li>
-                <span class="feed-row">
-                  <span class="list-main">
-                    <b>{{ h.licensingState }} {{ h.licenseNumber }}</b>
-                    <small class="muted"
-                      >{{ h.submittedAt | date: 'mediumDate' }}
-                      @if (h.rejectionReason) {
-                        · {{ h.rejectionReason }}
-                      }
-                    </small>
-                  </span>
-                  <span class="tag">{{ statusLabel(h.status) }}</span>
-                </span>
-              </li>
+            @if (tried() && !s().submitting && s().submitError; as error) {
+              <p class="field-error se-error" role="alert">The license could not be submitted: {{ error }}</p>
             }
-          </ul>
-        </details>
-      }
+          </form>
+        }
+        @if (earlier().length) {
+          <div class="se-block">
+            <h3 class="se-legend">Earlier submissions</h3>
+            <table gz-table sticky="none" class="lic-table">
+              <caption class="sr-only">Earlier license submissions, newest first</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Submitted</th>
+                  <th scope="col">License number</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" data-priority="2">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (h of earlier(); track h.id) {
+                  <tr>
+                    <td class="nowrap">{{ day(h.submittedAt) }}</td>
+                    <td>{{ h.licenseNumber }}</td>
+                    <td>
+                      {{ statusLabel(h.status) }}
+                      @if (h.rejectionReason) {
+                        <span class="m-only cell-sub">{{ h.rejectionReason }}</span>
+                      }
+                    </td>
+                    <td data-priority="2">{{ h.rejectionReason }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
     </section>
   `,
 })
-export class RealtorLicense implements OnInit {
-  w = inject(Workspace);
-  s = this.w.store.selectSignal(selectRealtorLicense);
-  latest = computed(() => this.s().history.value?.[0] ?? null);
-  earlier = computed(() => this.s().history.value?.slice(1) ?? []);
+export class RealtorLicense {
+  readonly w = inject(Workspace);
+  readonly s = this.w.store.selectSignal(selectRealtorLicense);
+  readonly latest = computed(() => this.s().history.value?.[0] ?? null);
+  readonly earlier = computed(() => this.s().history.value?.slice(1) ?? []);
   /** Allowed with no submission yet, or after a rejection. */
-  canSubmit = computed(
-    () =>
-      this.s().history.value !== null && (!this.latest() || this.latest()!.status === 'REJECTED'),
+  readonly canSubmit = computed(
+    () => this.s().history.value !== null && (!this.latest() || this.latest()!.status === 'REJECTED'),
   );
   readonly minDate = today();
-  holder = '';
-  state = 'FL';
-  number = '';
-  expires = '';
-  brokerage = '';
-  email = '';
+  readonly holder = signal('');
+  readonly number = signal('');
+  readonly expires = signal('');
+  readonly brokerage = signal('');
+  readonly email = signal('');
+  /** Submit was pressed on this visit, so a failed submission is this form's to show. */
+  readonly tried = signal(false);
+  /** The rejected submission the form was filled from. */
+  private filledFrom: number | null = null;
+
   constructor() {
-    // The dashboard links here with #license; the router does not scroll to fragments itself.
+    // The overview links here with #license; the router doesn't scroll to fragments itself.
     const fragment = inject(ActivatedRoute).snapshot.fragment;
     const host = inject(ElementRef<HTMLElement>);
     afterNextRender(() => {
       if (fragment === 'license') host.nativeElement.scrollIntoView({ block: 'start' });
     });
-    // Start a resubmission from the rejected details, so only the wrong field needs fixing.
+    effect(() => {
+      if (this.w.auth.isLoggedIn()) untracked(() => !this.s().history.value && !this.s().history.loading && this.load());
+    });
+    // A resubmission starts from the rejected details, so only the wrong field needs fixing.
     effect(() => {
       const l = this.latest();
-      if (l && l.status === 'REJECTED' && !this.holder) {
-        this.holder = l.licenseHolderName;
-        this.number = l.licenseNumber;
-        this.brokerage = l.brokerageName ?? '';
-        this.email = l.workEmail ?? '';
-      }
+      if (!l || l.status !== 'REJECTED' || l.id === this.filledFrom) return;
+      untracked(() => {
+        this.filledFrom = l.id;
+        this.holder.set(l.licenseHolderName);
+        this.number.set(l.licenseNumber);
+        this.brokerage.set(l.brokerageName ?? '');
+        this.email.set(l.workEmail ?? '');
+        this.expires.set(l.licenseExpirationDate && l.licenseExpirationDate >= this.minDate ? l.licenseExpirationDate : '');
+      });
     });
   }
-  ngOnInit() {
-    if (!this.s().history.value) this.load();
-  }
+
+  readonly why = computed(() => {
+    if (!this.holder().trim() || !this.number().trim()) return 'Enter the name on the license and its number.';
+    if (this.expires() && this.expires() < this.minDate) return 'The expiry date can’t be in the past.';
+    if (this.email().trim() && !EMAIL.test(this.email().trim())) return 'Check the work email.';
+    return null;
+  });
   load() {
     this.w.store.dispatch(A.load());
   }
   submit() {
-    if (!this.w.requireAccount('verify your license')) return;
+    if (this.why() || this.s().submitting || !this.w.requireAccount('verify your license')) return;
+    this.tried.set(true);
     this.w.store.dispatch(
       A.submit({
         request: {
-          licenseHolderName: this.holder.trim(),
-          licensingState: this.state,
-          licenseNumber: this.number.trim(),
-          ...(this.expires ? { licenseExpirationDate: this.expires } : {}),
-          ...(this.brokerage.trim() ? { brokerageName: this.brokerage.trim() } : {}),
-          ...(this.email.trim() ? { workEmail: this.email.trim() } : {}),
+          licenseHolderName: this.holder().trim(),
+          licensingState: 'FL',
+          licenseNumber: this.number().trim(),
+          ...(this.expires() ? { licenseExpirationDate: this.expires() } : {}),
+          ...(this.brokerage().trim() ? { brokerageName: this.brokerage().trim() } : {}),
+          ...(this.email().trim() ? { workEmail: this.email().trim() } : {}),
         },
       }),
     );
   }
-  statusLabel(status: string) {
-    return LICENSE_STATUS_LABELS[status as keyof typeof LICENSE_STATUS_LABELS] ?? status;
+  statusLabel(status: RealtorLicenseVerificationDTO['status']) {
+    return LICENSE_STATUS_LABELS[status] ?? status;
+  }
+  stateName(code: string) {
+    return STATES[code] ?? code;
+  }
+  day(v: string) {
+    return formatLocalDate(v);
+  }
+  calendar(v: string) {
+    return formatRecordDate(v);
   }
 }

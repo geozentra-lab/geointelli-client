@@ -126,156 +126,160 @@ const FOCUSABLE =
       </section>
     }
   `,
-  styles: [
-    `
-      :host {
-        display: inline-flex;
-        position: relative;
-      }
-      .notification-trigger {
-        position: relative;
-      }
-      .notification-dot {
-        position: absolute;
-        right: 8px;
-        top: 8px;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: #ad724c;
-        border: 1px solid #fff;
-      }
-      .notification-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 1000;
-      }
+  styles: `
+    :host {
+      display: inline-flex;
+      position: relative;
+    }
+    .notification-trigger {
+      position: relative;
+    }
+    .notification-dot {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 7px;
+      height: 7px;
+      border-radius: var(--radius-round);
+      background: var(--copper);
+      box-shadow: 0 0 0 1px var(--surface);
+    }
+    .notification-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: var(--z-menu);
+    }
+    /* A floating menu: one shadow and a rule-strong border (DESIGN.md §4). */
+    .notification-popup {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: var(--z-menu);
+      width: min(380px, calc(100vw - 24px));
+      max-height: calc(100dvh - 100px);
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--rule-strong);
+      border-radius: var(--radius-control);
+      box-shadow: var(--shadow-menu);
+      color: var(--ink);
+    }
+    @media (max-width: 700px) {
       .notification-popup {
-        position: absolute;
-        top: calc(100% + 10px);
-        right: 0;
-        z-index: 1001;
-        width: min(380px, calc(100vw - 24px));
-        max-height: calc(100dvh - 100px);
-        overflow-y: auto;
-        background: white;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-xl);
-        box-shadow: 0 12px 40px #17273526;
-        color: var(--ink);
+        position: fixed;
+        top: calc(var(--topbar-h) + 4px);
+        left: 8px;
+        right: 8px;
+        width: auto;
       }
-      @media (max-width: 650px) {
-        .notification-popup {
-          position: fixed;
-          top: 70px;
-          left: 12px;
-          right: 12px;
-          width: auto;
-        }
-      }
-      .notification-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 16px 18px;
-        border-bottom: 1px solid var(--line);
-      }
-      h2 {
-        font-size: 16px;
-        margin: 0;
-      }
-      h3 {
-        font-size: 13px;
-        margin: 0 0 5px;
-        font-weight: 600;
-      }
-      p {
-        font-size: 12px;
-        line-height: 1.5;
-        margin: 0;
-        color: var(--ink-2);
-      }
-      .notification-header p {
-        margin-top: 4px;
-      }
-      ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-      }
-      li {
-        display: flex;
-        gap: 12px;
-        padding: 14px 18px;
-        border-bottom: 1px solid #edf0f2;
-      }
-      li.unread {
-        background: #faf7f4;
-      }
-      .activity-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: #edf1f4;
-        display: grid;
-        place-items: center;
-        flex-shrink: 0;
-      }
-      .notification-body {
-        min-width: 0;
-        flex: 1;
-        overflow-wrap: anywhere;
-      }
-      .notification-meta {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-top: 8px;
-      }
-      time {
-        font-size: 11px;
-        color: var(--muted);
-      }
-      .notification-meta a {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        font-size: 12px;
-        font-weight: 600;
-        min-height: 28px;
-      }
-      .notification-error {
-        padding: 12px 18px;
-        color: var(--danger);
-      }
-      .notification-empty {
-        text-align: center;
-        padding: 30px 24px;
-      }
-      .notification-empty > gz-icon {
-        color: var(--muted);
-        margin-bottom: 12px;
-      }
-      .notification-empty h3 {
-        font-size: 14px;
-      }
-      .notification-footer {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        padding: 14px;
-        font-size: 12px;
-        font-weight: 600;
-      }
-      .notification-footer:hover,
-      .notification-meta a:hover {
-        color: #ad724c;
-      }
-    `,
-  ],
+    }
+    .notification-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-12);
+      padding: 8px 8px 8px 16px;
+      border-bottom: 1px solid var(--rule);
+    }
+    h2 {
+      font-size: var(--fs-section);
+      line-height: var(--lh-section);
+      margin: 0;
+    }
+    h3 {
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      margin: 0 0 2px;
+      font-weight: 500;
+    }
+    p {
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      margin: 0;
+      color: var(--ink-2);
+    }
+    .notification-header p {
+      display: none;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    li {
+      display: flex;
+      gap: var(--sp-12);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--rule);
+    }
+    /* Unread: a copper mark before the title. */
+    li.unread h3::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 6px;
+      vertical-align: 2px;
+      border-radius: var(--radius-round);
+      background: var(--copper);
+    }
+    .activity-icon,
+    .notification-empty > gz-icon,
+    .notification-meta a gz-icon,
+    .notification-footer gz-icon {
+      display: none;
+    }
+    .notification-body {
+      min-width: 0;
+      flex: 1;
+      overflow-wrap: anywhere;
+    }
+    .notification-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-12);
+      margin-top: 4px;
+    }
+    time {
+      font-size: var(--fs-caption);
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums lining-nums;
+    }
+    .notification-meta a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      font-size: var(--fs-caption);
+      font-weight: 500;
+      color: var(--copper);
+    }
+    .notification-error {
+      padding: 10px 16px;
+      color: var(--negative);
+    }
+    .notification-empty {
+      padding: var(--sp-16);
+    }
+    .notification-empty h3 {
+      font-size: var(--fs-body);
+    }
+    .notification-footer {
+      display: flex;
+      align-items: center;
+      min-height: 40px;
+      padding: 0 16px;
+      font-size: var(--fs-cell);
+      font-weight: 500;
+      color: var(--copper);
+    }
+    .notification-footer:hover,
+    .notification-meta a:hover {
+      color: var(--copper-hover);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+  `,
 })
 export class NotificationMenu {
   readonly w = inject(Workspace);

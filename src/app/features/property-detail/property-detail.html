@@ -1,297 +1,266 @@
-<gz-heading
-  eyebrow="PROPERTY INTELLIGENCE"
-  [title]="w.catalog().detail?.address?.address || 'Property details'"
-  subtitle="Property records and evidence from the source."
-  ><a class="btn" routerLink="/explore">Back to results</a>
-  @if (id(); as propertyId) {
-    <gz-favorite-button
-      [propertyId]="propertyId"
-      [address]="w.catalog().detail?.address?.address || 'property'"
-      [showLabel]="true"
-    />
-    <gz-compare-toggle
-      [propertyId]="propertyId"
-      [label]="w.catalog().detail?.address?.address || 'property'"
-      [small]="false"
-    />
-    <a class="btn" [routerLink]="['/compare', propertyId]">Comparable sales</a
-    ><a class="btn" [routerLink]="['/investment-studio', propertyId]">Investment studio</a>
-  }
-</gz-heading>
 @if (!id()) {
   <div class="empty">
-    This property link is invalid.<a class="btn spacer" routerLink="/explore">Find a property</a>
+    <p>This property link is invalid.</p>
+    <a class="btn" routerLink="/explore">Find a property</a>
   </div>
 } @else {
-  <gz-request-status
-    [loading]="w.catalog().detailLoading"
-    [error]="w.catalog().detailError"
-    (retry)="reload()"
-  />
-  <gz-request-status [error]="w.favoriteState().error" (retry)="w.retryFavorite()" />
-  @if (w.catalog().detail; as p) {
-    <gz-property-gallery
-      [images]="photos().images"
-      [loading]="photos().loading"
-      [error]="photos().error"
-      [address]="p.address?.address || p.folio"
-      (retry)="reloadPhotos()"
+  <div class="pr-page" [attr.inert]="askOpen() ? '' : null">
+    <gz-request-status
+      [loading]="w.catalog().detailLoading && !detail()"
+      loadingText="Loading the property record…"
+      [error]="w.catalog().detailError"
+      (retry)="reload()"
     />
-    <div class="detailtitle">
-      <div>
-        <h2>{{ p.address?.address || p.folio }}</h2>
-        <p class="sub">{{ place(p) }}</p>
-        <div class="facts">
-          <span>{{ p.bedroomCount == null ? '—' : p.bedroomCount }} beds</span
-          ><span>{{ p.bathroomCount == null ? '—' : p.bathroomCount }} baths</span
-          ><span
-            >{{ p.buildingActualArea == null ? '—' : (p.buildingActualArea | number) }} sqft</span
-          ><span>{{ p.yearBuilt ? 'Built ' + p.yearBuilt : 'Year unknown' }}</span>
+    <gz-request-status [error]="w.favoriteState().error" (retry)="w.retryFavorite()" />
+    @if (detail(); as p) {
+      <div class="pr" [class.wide]="tab() === 'comparables'">
+        <header class="pr-head">
+          <h1>{{ title(p) }}</h1>
+          <p class="facts-line">
+            @for (f of factsLine(p); track $index) {
+              <span>{{ f }}@if (!$last) {<span class="sr-only">,</span>}</span>&ngsp;
+            }
+          </p>
+        </header>
+
+        @if (tab() !== 'comparables') {
+          <aside class="pr-aside" aria-labelledby="pr-aside-title">
+            <h2 class="sr-only" id="pr-aside-title">ZentraValue</h2>
+            @if (valuation().loading) {
+              <div class="zv-skeleton" aria-busy="true">
+                <span class="sr-only">Loading the ZentraValue</span>
+                <i></i><i></i><i></i>
+              </div>
+            } @else if (valuation().error) {
+              <p class="aside-error" role="alert">{{ valuation().error }}</p>
+              <button type="button" class="btn small" (click)="retryPrediction()">
+                Retry valuation
+              </button>
+            } @else {
+              <gz-zentra-value size="page" [valuation]="valuation().valuation" />
+            }
+            <ng-container *ngTemplateOutlet="actions" />
+          </aside>
+        }
+        <!-- The page's actions: in the aside, and in the one-line ZentraValue on Comparables. -->
+        <ng-template #actions>
+          <div class="aside-actions">
+            <gz-favorite-button [propertyId]="p.id!" [address]="title(p)" [showLabel]="true" />
+            <gz-compare-toggle [propertyId]="p.id!" [label]="title(p)" [small]="false" />
+            <a class="btn" [routerLink]="['/investment-studio', p.id]">Open in Studio</a>
+            <button type="button" class="btn ask-button" (click)="openAsk()">
+              Ask about this property
+            </button>
+          </div>
+        </ng-template>
+
+        <div class="tabs pr-tabs" role="tablist" aria-label="Property sections">
+          @for (t of tabs; track t[0]) {
+            <button
+              type="button"
+              role="tab"
+              [id]="'property-tab-' + t[0]"
+              [attr.data-tab]="t[0]"
+              [attr.aria-controls]="'property-panel-' + t[0]"
+              [attr.aria-selected]="tab() === t[0]"
+              [attr.tabindex]="tab() === t[0] ? 0 : -1"
+              (keydown)="onTabKey($event)"
+              [class.active]="tab() === t[0]"
+              (click)="selectTab(t[0])"
+            >
+              {{ t[1] }}
+            </button>
+          }
+        </div>
+
+        <div
+          class="pr-main"
+          role="tabpanel"
+          [id]="'property-panel-' + tab()"
+          [attr.aria-labelledby]="'property-tab-' + tab()"
+          tabindex="0"
+        >
+          @switch (tab()) {
+            @case ('overview') {
+              @if (showGallery()) {
+                <gz-property-gallery
+                  [images]="photos().images"
+                  [loading]="photos().loading"
+                  [error]="photos().error"
+                  [address]="title(p)"
+                  (retry)="reloadPhotos()"
+                />
+              }
+              <gz-property-facts [property]="p" />
+              <gz-sale-history
+                [headingLevel]="2"
+                [sales]="p.sales || []"
+                [prediction]="saleEstimate()"
+                [line]="history().line"
+                [band]="history().band"
+                [loading]="valuation().loading"
+              />
+            }
+            @case ('valuation') {
+              @if (valuation().notFound) {
+                <gz-record-section heading="Valuation">
+                  <p class="pr-empty">This property was not found, so there is no valuation.</p>
+                </gz-record-section>
+              } @else {
+                <!-- A failed valuation is reported once, with its retry, in the ZentraValue aside. -->
+                <gz-request-status [loading]="valuation().loading" loadingText="Loading valuation…" />
+                @if (valuation().valuation; as v) {
+                  <gz-property-valuation
+                    [valuation]="v"
+                    [historyLine]="history().line"
+                    [historyBand]="history().band"
+                  />
+                }
+                <!-- The opportunity score is the investor's (features.investment). -->
+                @if (w.features().investment) {
+                  <gz-property-opportunity [propertyId]="p.id!" />
+                }
+                <gz-valuation-history [propertyId]="p.id!" />
+              }
+            }
+            @case ('location') {
+              <gz-request-status
+                [loading]="w.catalog().evidenceLoading"
+                loadingText="Loading location data…"
+                [error]="w.catalog().evidence?.errors?.join(' ') || null"
+                retryLabel="Retry location data"
+                (retry)="reload()"
+              />
+              @if (w.catalog().evidence; as e) {
+                <gz-record-section heading="Schools">
+                  @if (e.schools; as s) {
+                    @if (s.status === 'NO_COVERAGE') {
+                      <p class="pr-empty">School data does not cover this location yet.</p>
+                    } @else {
+                      @if (s.schoolScore !== null) {
+                        <p class="score-line">
+                          <b class="num">{{ s.schoolScore | number: '1.0-0' }}</b> of 100
+                          @if (s.schoolScoreLabel) {
+                            <span>· {{ s.schoolScoreLabel }}</span>
+                          }
+                        </p>
+                      }
+                      @if (s.status === 'NO_NEARBY_RESULTS') {
+                        <p class="pr-meta">No school is within 1 km of this property.</p>
+                      }
+                      @let pub = distance(s.nearestPublicSchoolDistance);
+                      @let charter = distance(s.nearestCharterSchoolDistance);
+                      @let within = num(s.schoolsWithin1km);
+                      <gz-record-group
+                        heading="Nearby"
+                        [note]="anyMissing(pub, charter, within) ? 'Unavailable: not returned for this location.' : ''"
+                      >
+                        <div gz-record-row label="Nearest public school" [missing]="pub === null" reason="Not returned for this location" [numeric]="true">{{ pub }}</div>
+                        <div gz-record-row label="Nearest charter school" [missing]="charter === null" reason="Not returned for this location" [numeric]="true">{{ charter }}</div>
+                        <div gz-record-row label="Schools within 1 km" [missing]="within === null" reason="Not returned for this location" [numeric]="true">{{ within }}</div>
+                      </gz-record-group>
+                      @if (s.schoolScore !== null) {
+                        <gz-record-group heading="Score parts, out of 100">
+                          @for (
+                            part of [
+                              ['Public school distance', s.publicSchoolDistanceScore],
+                              ['Charter school distance', s.charterSchoolDistanceScore],
+                              ['Schools nearby', s.schoolDensityScore],
+                            ];
+                            track part[0]
+                          ) {
+                            @let score = num($any(part[1]));
+                            <div gz-record-row [label]="$any(part[0])" [missing]="score === null" reason="Not scored for this location" [numeric]="true">
+                              <span class="part"><span class="part-bar" aria-hidden="true"><i [style.width.%]="score"></i></span>{{ score | number: '1.0-0' }}</span>
+                            </div>
+                          }
+                        </gz-record-group>
+                      }
+                    }
+                    @if (s.note) {
+                      <p class="sourcedata">{{ s.note }}</p>
+                    }
+                    <p class="sourcedata">{{ s.source }}</p>
+                  } @else {
+                    <p class="pr-empty">School data is not available for this property.</p>
+                  }
+                </gz-record-section>
+                <gz-record-section heading="Transportation">
+                  @if (e.transportation; as t) {
+                    @if (t.status === 'AVAILABLE') {
+                      @if (t.transportationScore !== null) {
+                        <p class="score-line">
+                          <b class="num">{{ t.transportationScore | number: '1.0-0' }}</b> of 100
+                          @if (t.transportationScoreLabel) {
+                            <span>· {{ t.transportationScoreLabel }}</span>
+                          }
+                        </p>
+                      }
+                      @let stops = num(t.busStopsWithin500m);
+                      <gz-record-group heading="Nearby">
+                        @for (o of t.transport; track o.category) {
+                          @let d = distance(o.nearestDistance);
+                          <div gz-record-row [label]="'Nearest ' + transportLabel(o.category)" [missing]="d === null" reason="Not returned for this location" [numeric]="true">{{ d }}</div>
+                        }
+                        <div gz-record-row label="Bus stops within 500 m" [missing]="stops === null" reason="Not returned for this location" [numeric]="true">{{ stops }}</div>
+                      </gz-record-group>
+                    } @else if (t.status === 'UNAVAILABLE') {
+                      <p class="pr-empty" role="alert">
+                        {{ t.error || 'Transportation data could not be loaded.' }}
+                      </p>
+                      <button type="button" class="btn small" (click)="reload()">Retry location data</button>
+                    } @else {
+                      <p class="pr-empty">Transportation data does not cover this location yet.</p>
+                    }
+                    @if (t.note) {
+                      <p class="sourcedata">{{ t.note }}</p>
+                    }
+                    <p class="sourcedata">{{ t.source }}</p>
+                  } @else {
+                    <p class="pr-empty">Transportation data is not available for this property.</p>
+                  }
+                </gz-record-section>
+              }
+            }
+            @case ('sales') {
+              <gz-sale-history
+                [headingLevel]="2"
+                [sales]="p.sales || []"
+                [prediction]="saleEstimate()"
+                [line]="history().line"
+                [band]="history().band"
+                [loading]="valuation().loading"
+              />
+              <gz-property-assessments [assessments]="p.assessments" />
+            }
+            @case ('features') {
+              <gz-property-features [propertyId]="p.id!" />
+            }
+            @case ('comparables') {
+              <div class="zv-oneline">
+                @if (valuation().loading) {
+                  <span class="muted">Loading the ZentraValue…</span>
+                } @else if (valuation().error) {
+                  <span class="muted" role="alert">{{ valuation().error }}</span>
+                  <button type="button" class="btn small" (click)="retryPrediction()">Retry valuation</button>
+                } @else {
+                  <gz-zentra-value layout="line" [valuation]="valuation().valuation" />
+                }
+                <ng-container *ngTemplateOutlet="actions" />
+              </div>
+              <gz-comparables-map [propertyId]="p.id!" [subject]="compSubject()" />
+              <gz-sale-candidates [propertyId]="p.id!" />
+            }
+          }
         </div>
       </div>
-    </div>
-    <gz-sale-history
-      [sales]="p.sales || []"
-      [prediction]="saleEstimate()"
-      [loading]="valuation().loading"
-    />
-    <div class="tabs" role="tablist" aria-label="Property information">
-      @for (
-        t of [
-          ['overview', 'Overview'],
-          ['valuation', 'Value & forecast'],
-          ['location', 'Location'],
-          ['sales', 'Sales & assessments'],
-          ['features', 'Building & features'],
-          ['comparables', 'Comparables map'],
-        ];
-        track t[0]
-      ) {
-        <button
-          type="button"
-          role="tab"
-          [id]="'property-tab-' + t[0]"
-          [attr.data-tab]="t[0]"
-          [attr.aria-controls]="'property-panel-' + t[0]"
-          [attr.aria-selected]="tab() === t[0]"
-          [attr.tabindex]="tab() === t[0] ? 0 : -1"
-          (keydown)="onTabKey($event)"
-          [class.active]="tab() === t[0]"
-          (click)="tab.set(t[0])"
-        >
-          {{ t[1] }}
-        </button>
-      }
-    </div>
-    <div
-      role="tabpanel"
-      [id]="'property-panel-' + tab()"
-      [attr.aria-labelledby]="'property-tab-' + tab()"
-      tabindex="0"
-    >
-      @switch (tab()) {
-        @case ('overview') {
-          <div class="panel">
-            <h3>Property overview</h3>
-            @for (
-              row of [
-                ['Property use', p.dorDescription],
-                ['Neighborhood', p.neighborhoodDescription],
-                ['Subdivision', p.subdivision],
-                ['Municipality', p.municipality],
-                ['Status', p.status],
-              ];
-              track row[0]
-            ) {
-              <div class="lineitem">
-                <span>{{ row[0] }}</span
-                ><b>{{ row[1] || 'Not available' }}</b>
-              </div>
-            }
-            <h3 class="spacer">Owners</h3>
-            @for (o of p.owners; track $index) {
-              <div class="lineitem">
-                <span>{{ o.name || 'Owner name unavailable' }}</span
-                ><span>{{
-                  o.percentageOwn == null ? '—' : (o.percentageOwn | number: '1.0-2') + '%'
-                }}</span>
-              </div>
-            } @empty {
-              <p class="sub spacer">Ownership data is not available.</p>
-            }
-          </div>
-        }
-        @case ('valuation') {
-          @if (valuation().notFound) {
-            <div class="empty">This property was not found, so there is no valuation.</div>
-          } @else {
-            <gz-request-status
-              [loading]="valuation().loading"
-              loadingText="Loading valuation…"
-              [error]="valuation().error"
-              retryLabel="Retry valuation"
-              (retry)="retryPrediction()"
-            />
-            @if (valuation().valuation; as v) {
-              <div class="panel">
-                <gz-property-valuation [valuation]="v" />
-              </div>
-            }
-            @if (id(); as propertyId) {
-              <gz-property-opportunity [propertyId]="propertyId" />
-              <gz-valuation-history [propertyId]="propertyId" />
-            }
-          }
-        }
-        @case ('location') {
-          <gz-request-status
-            [loading]="w.catalog().evidenceLoading"
-            loadingText="Loading location data…"
-            [error]="w.catalog().evidence?.errors?.join(' ') || null"
-            retryLabel="Retry location data"
-            (retry)="reload()"
-          />
-          @if (w.catalog().evidence; as e) {
-            <div class="grid cols2">
-              <div class="panel">
-                <div class="panelhead">
-                  <h3>Schools</h3>
-                  @if (e.schools?.schoolScoreLabel; as label) {
-                    <span class="tag" [class.green]="(e.schools?.schoolScore ?? 0) >= 60"
-                      >{{ label }} · {{ e.schools?.schoolScore }}/100</span
-                    >
-                  }
-                </div>
-                @if (e.schools; as s) {
-                  @if (s.status === 'NO_COVERAGE') {
-                    <p class="sub spacer">School data is not available for this location yet.</p>
-                  } @else {
-                    @if (s.status === 'NO_NEARBY_RESULTS') {
-                      <p class="sub spacer">No school is within 1 km of this property.</p>
-                    }
-                    <div class="lineitem">
-                      <span>Nearest public school</span
-                      ><strong>{{ distance(s.nearestPublicSchoolDistance) }}</strong>
-                    </div>
-                    <div class="lineitem">
-                      <span>Nearest charter school</span
-                      ><strong>{{ distance(s.nearestCharterSchoolDistance) }}</strong>
-                    </div>
-                    <div class="lineitem">
-                      <span>Schools within 1 km</span
-                      ><strong>{{ s.schoolsWithin1km ?? 'Unknown' }}</strong>
-                    </div>
-                    @if (s.schoolScore !== null) {
-                      <div class="scorebars spacer" aria-label="School score breakdown">
-                        @for (
-                          part of [
-                            ['Public school distance', s.publicSchoolDistanceScore],
-                            ['Charter school distance', s.charterSchoolDistanceScore],
-                            ['Schools nearby', s.schoolDensityScore],
-                          ];
-                          track part[0]
-                        ) {
-                          <div class="smalltext">{{ part[0] }} · {{ part[1] ?? 'unknown' }}</div>
-                          <div class="bar"><span [style.width.%]="part[1] ?? 0"></span></div>
-                        }
-                      </div>
-                    }
-                  }
-                  @if (s.note) {
-                    <p class="sourcedata">{{ s.note }}</p>
-                  }
-                  <p class="sourcedata">{{ s.source }}</p>
-                } @else {
-                  <p class="sub spacer">School data is not available for this property.</p>
-                }
-              </div>
-              <div class="panel">
-                <div class="panelhead">
-                  <h3>Transportation</h3>
-                  @if (e.transportation?.transportationScoreLabel; as label) {
-                    <span
-                      class="tag"
-                      [class.green]="(e.transportation?.transportationScore ?? 0) >= 60"
-                      >{{ label }} · {{ e.transportation?.transportationScore }}/100</span
-                    >
-                  }
-                </div>
-                @if (e.transportation; as t) {
-                  @if (t.status === 'AVAILABLE') {
-                    @for (o of t.transport; track o.category) {
-                      <div class="lineitem">
-                        <span>Nearest {{ transportLabel(o.category) }}</span
-                        ><strong>{{ distance(o.nearestDistance) }}</strong>
-                      </div>
-                    }
-                    <div class="lineitem">
-                      <span>Bus stops within 500 m</span
-                      ><strong>{{ t.busStopsWithin500m ?? 'Unknown' }}</strong>
-                    </div>
-                  } @else if (t.status === 'UNAVAILABLE') {
-                    <p class="sub spacer" role="alert">
-                      {{ t.error || 'Transportation data is temporarily unavailable.' }}
-                    </p>
-                  } @else {
-                    <p class="sub spacer">
-                      Transportation data is not available for this location yet.
-                    </p>
-                  }
-                  @if (t.note) {
-                    <p class="sourcedata">{{ t.note }}</p>
-                  }
-                  <p class="sourcedata">{{ t.source }}</p>
-                } @else {
-                  <p class="sub spacer">Transportation data is not available for this property.</p>
-                }
-              </div>
-            </div>
-          }
-        }
-        @case ('sales') {
-          <div class="grid cols2">
-            <div class="panel">
-              <h3>Recorded sales</h3>
-              @for (s of p.sales; track $index) {
-                <div class="lineitem">
-                  <span>{{ s.saleDate | date: 'mediumDate' }}</span
-                  ><strong>{{ s.salePrice | currency: 'USD' : 'symbol' : '1.0-0' }}</strong>
-                </div>
-              } @empty {
-                <p class="sub spacer">No recorded sales available.</p>
-              }
-            </div>
-            <div class="panel">
-              <h3>Assessments</h3>
-              @for (a of p.assessments; track $index) {
-                <div class="lineitem">
-                  <span>{{ a.year }}</span
-                  ><strong>{{ a.totalValue | currency: 'USD' : 'symbol' : '1.0-0' }}</strong>
-                </div>
-              } @empty {
-                <p class="sub spacer">No assessments available.</p>
-              }
-              <p class="sourcedata">
-                An assessment is not a listing price or market-value estimate.
-              </p>
-            </div>
-          </div>
-        }
-        @case ('features') {
-          @if (id(); as propertyId) {
-            <gz-property-features [propertyId]="propertyId" />
-          }
-        }
-        @case ('comparables') {
-          @if (id(); as propertyId) {
-            <gz-comparables-map [propertyId]="propertyId" [subject]="compSubject()" />
-            <gz-sale-candidates [propertyId]="propertyId" />
-          }
-        }
-      }
-    </div>
-    @if (p.id) {
-      <gz-contact-professional [propertyId]="p.id" />
     }
-  }
+  </div>
+  <gz-sheet heading="Ask about this property" [open]="askOpen()" (closed)="askOpen.set(false)">
+    <!-- Created per property (detail() is null while the next one loads), so a half-written
+         request and its consent never carry over to another home. -->
+    @if (detail(); as p) {
+      <gz-contact-professional [propertyId]="p.id!" />
+    }
+  </gz-sheet>
 }

@@ -64,6 +64,12 @@ import { realtorLicenseReducer } from './realtor-license/realtor-license.reducer
 import { RealtorLicenseEffects } from './realtor-license/realtor-license.effects';
 import { adminReducer } from './admin/admin.reducer';
 import { AdminEffects } from './admin/admin.effects';
+import { exploreMapReducer } from './explore-map/explore-map.reducer';
+import { accountReducer } from './account/account.reducer';
+import { AccountEffects } from './account/account.effects';
+import { adminAccessReducer } from './admin-access/admin-access.reducer';
+import { AdminAccessEffects } from './admin-access/admin-access.effects';
+import { ExploreMapEffects } from './explore-map/explore-map.effects';
 
 /**
  * Slices the app shell or the Workspace facade read on every page, or that several lazy routes
@@ -88,6 +94,10 @@ export const appReducers = {
   opportunities: opportunitiesReducer,
   affordability: affordabilityReducer,
   mortgage: mortgageReducer,
+  // The account type, onboarding and role approval: the shell, its menus and route guards read it.
+  account: accountReducer,
+  // The realtor license: the onboarding page, the pending banner and Settings all use it.
+  realtorLicense: realtorLicenseReducer,
 };
 const appEffects = [
   NotificationsEffects,
@@ -107,6 +117,8 @@ const appEffects = [
   OpportunitiesEffects,
   AffordabilityEffects,
   MortgageEffects,
+  AccountEffects,
+  RealtorLicenseEffects,
 ];
 
 interface FeatureStore {
@@ -129,8 +141,9 @@ export const featureStores = {
   lenderDashboard: { reducer: lenderDashboardReducer, effects: LenderDashboardEffects },
   investment: { reducer: investmentReducer, effects: InvestmentEffects },
   propertyInsights: { reducer: propertyInsightsReducer, effects: PropertyInsightsEffects },
-  realtorLicense: { reducer: realtorLicenseReducer, effects: RealtorLicenseEffects },
   admin: { reducer: adminReducer, effects: AdminEffects },
+  // Admin: role requests, realtor licenses, a user's role history and revocation (SCRUM-204).
+  adminAccess: { reducer: adminAccessReducer, effects: AdminAccessEffects },
   notificationPreferences: {
     reducer: notificationPreferencesReducer,
     effects: NotificationPreferencesEffects,
@@ -139,6 +152,8 @@ export const featureStores = {
   contactRequests: { reducer: contactRequestsReducer, effects: ContactRequestsEffects },
   importJobs: { reducer: importJobsReducer, effects: ImportJobsEffects },
   lender: { reducer: lenderReducer, effects: LenderEffects },
+  // Where Explore's results sit on its map (parcel lookups by folio); Explore only.
+  exploreMap: { reducer: exploreMapReducer, effects: ExploreMapEffects },
 } satisfies Record<string, FeatureStore>;
 export type FeatureStoreKey = keyof typeof featureStores;
 

@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, effect, inject, input } from '@angular/core';
+import { Component, computed, effect, inject, input, untracked } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Store } from '@ngrx/store';
@@ -12,7 +12,7 @@ import { CrmSubjectType, crmLabel } from '../../core/models/crm';
   imports: [DatePipe, FormsModule, RequestStatus],
   template: `<div class="crm-history">
     @if (canNote()) {
-      <form class="crm-note" #f="ngForm" (ngSubmit)="f.valid && addNote()">
+      <form class="crm-note" (ngSubmit)="addNote()">
         <label class="sr-only" [for]="'note-' + key()">Add a note</label>
         <textarea
           class="field fullwidth"
@@ -20,14 +20,18 @@ import { CrmSubjectType, crmLabel } from '../../core/models/crm';
           name="note"
           rows="2"
           maxlength="2000"
-          required
           placeholder="Add a note about this conversation…"
           [(ngModel)]="note"
-          [disabled]="crm().saving > 0"
         ></textarea>
-        <button class="btn small primary" [disabled]="f.invalid || crm().saving > 0">
-          {{ submitted !== null ? 'Saving…' : 'Add note' }}
-        </button>
+        <div class="crm-note-actions">
+          <button class="btn small primary" [attr.aria-disabled]="!note.trim() || crm().saving > 0 ? 'true' : null"
+            [attr.aria-describedby]="!note.trim() ? 'note-why-' + key() : null">
+            {{ submitted !== null ? 'Saving…' : 'Add note' }}
+          </button>
+          @if (!note.trim()) {
+            <span class="smalltext muted" [id]="'note-why-' + key()">Write the note first.</span>
+          }
+        </div>
       </form>
     }
     @if (active()) {
@@ -45,7 +49,7 @@ import { CrmSubjectType, crmLabel } from '../../core/models/crm';
               @if (a.description) {
                 <p>{{ a.description }}</p>
               }
-              <span class="smalltext">{{ a.createdAt | date: 'medium' }}</span>
+              <span class="smalltext muted">{{ a.createdAt | date: 'MMM d, y, h:mm a' }}</span>
             </li>
           } @empty {
             <li class="sub">No activity recorded yet.</li>
@@ -75,16 +79,18 @@ import { CrmSubjectType, crmLabel } from '../../core/models/crm';
   </div>`,
   styles: `
     .crm-history {
-      margin-top: 14px;
-      padding: 14px;
-      border-radius: var(--radius);
-      background: #f6f8f7;
+      margin-top: var(--sp-8);
     }
     .crm-note {
+      display: grid;
+      gap: var(--sp-8);
+      margin-bottom: var(--sp-12);
+    }
+    .crm-note-actions {
       display: flex;
-      gap: 10px;
-      align-items: flex-start;
-      margin-bottom: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--sp-8);
     }
     .crm-timeline {
       list-style: none;
@@ -93,7 +99,7 @@ import { CrmSubjectType, crmLabel } from '../../core/models/crm';
     }
     .crm-timeline li {
       padding: 10px 0 10px 14px;
-      border-left: 2px solid #d8e0e4;
+      border-left: 2px solid var(--rule);
     }
     .crm-timeline p {
       margin: 4px 0;
@@ -102,7 +108,7 @@ import { CrmSubjectType, crmLabel } from '../../core/models/crm';
     }
   `,
 })
-export class CrmHistory implements OnInit {
+export class CrmHistory {
   private store = inject(Store);
   subject = input.required<CrmSubjectType>();
   id = input.required<number>();
@@ -114,6 +120,13 @@ export class CrmHistory implements OnInit {
   note = '';
   submitted: string | null = null;
   constructor() {
+    // The record's history, newest first: again whenever the pane steps to another record.
+    effect(() => {
+      const key = this.key();
+      if (key === this.loadedKey) return;
+      this.loadedKey = key;
+      untracked(() => this.load(0));
+    });
     effect(() => {
       const s = this.crm();
       if (this.submitted !== null && !s.saving) {
@@ -122,9 +135,7 @@ export class CrmHistory implements OnInit {
       }
     });
   }
-  ngOnInit() {
-    this.load(0);
-  }
+  private loadedKey: string | null = null;
   load(page: number) {
     this.store.dispatch(A.loadHistory({ subject: this.subject(), id: this.id(), page }));
   }

@@ -1,0 +1,269 @@
+/* Parcel search: the map fills the page, the search docked on the left at 420 px (DESIGN.md §5). */
+:host {
+  display: block;
+}
+.lm {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: calc(100dvh - var(--topbar-h));
+}
+.lm-head,
+.lm-detail {
+  grid-column: 1;
+  min-width: 0;
+  padding: 0 var(--sp-24) 0 var(--gutter);
+  background: var(--surface);
+  border-right: 1px solid var(--rule-strong);
+}
+.lm-head {
+  padding-top: var(--sp-24);
+}
+.lm-detail {
+  padding-bottom: var(--sp-32);
+}
+.lm-mapwrap {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  position: sticky;
+  top: var(--topbar-h);
+  align-self: start;
+  height: calc(100dvh - var(--topbar-h));
+}
+.lm-map {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+}
+h1 {
+  margin: 0;
+  font-size: var(--fs-page);
+  line-height: var(--lh-page);
+  letter-spacing: var(--track-24);
+}
+.lm-lede,
+.lm-note,
+.lm-source {
+  margin: var(--sp-4) 0 var(--sp-16);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+.lm-lede {
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+}
+.lm-note {
+  margin: var(--sp-8) 0 0;
+}
+.lm-source {
+  margin: var(--sp-24) 0 0;
+}
+.lm-section {
+  margin-top: var(--sp-24);
+  padding-top: var(--sp-12);
+  border-top: 2px solid var(--ink);
+}
+h2 {
+  margin: 0 0 var(--sp-8);
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+}
+
+/* Address matches: one ruled row each, the chosen one marked like a selected table row. */
+.lm-matches {
+  margin: var(--sp-12) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+.lm-matches li {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+}
+.lm-matches li.chosen {
+  background: var(--copper-tint);
+  box-shadow: inset 3px 0 0 var(--copper);
+}
+.lm-match {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: var(--sp-8);
+  background: transparent;
+  text-align: left;
+}
+.lm-matches li:not(.chosen) .lm-match:hover {
+  background: var(--row-hover);
+}
+.lm-match img,
+.lm-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 56px;
+  height: 44px;
+  object-fit: cover;
+  background: var(--paper);
+  color: var(--ink-2);
+}
+.lm-match-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lm-match-title {
+  overflow: hidden;
+  font-size: var(--fs-cell);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lm-match-place {
+  font-size: var(--fs-caption);
+  color: var(--ink-2);
+}
+.lm-record {
+  padding: var(--sp-8) 10px;
+  font-size: var(--fs-cell);
+  font-weight: 500;
+}
+
+/* Map chrome: segmented switches at top left, zoom at top right, one legend at bottom left. */
+.lm-bar .toggle button:disabled {
+  color: var(--placeholder);
+  cursor: not-allowed;
+}
+.lm-bar {
+  position: absolute;
+  top: var(--sp-12);
+  left: var(--sp-12);
+  right: 56px;
+  z-index: 500;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  pointer-events: none;
+}
+.lm-bar .toggle {
+  pointer-events: auto;
+}
+.lm-loading {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  z-index: 500;
+  margin: 0;
+  padding: 4px 12px;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  font-size: var(--fs-caption);
+}
+.lm-legend {
+  position: absolute;
+  left: var(--sp-12);
+  bottom: 26px;
+  z-index: 500;
+  max-width: min(340px, calc(100% - 24px));
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  color: var(--ink-2);
+}
+.lm-legend b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.lm-legend p {
+  margin: 6px 0 0;
+}
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  box-shadow: inset 0 0 0 1px rgb(23 39 53 / 0.2);
+}
+.lm-scale {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink);
+}
+.lm-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--ink);
+}
+.lm-keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.key {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.key.sel {
+  background: var(--copper-tint);
+  box-shadow: inset 0 0 0 2px var(--copper);
+}
+
+/* Tablet and phone: search, then the map, then matches and growth. */
+@media (max-width: 1023px) {
+  .lm {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  .lm-head,
+  .lm-detail {
+    padding-left: var(--gutter);
+    padding-right: var(--gutter);
+    border-right: 0;
+  }
+  .lm-head {
+    padding-bottom: var(--sp-16);
+  }
+  .lm-mapwrap {
+    grid-column: 1;
+    grid-row: 2;
+    position: relative;
+    top: auto;
+    height: 64dvh;
+    min-height: 380px;
+  }
+  .lm-detail {
+    grid-row: 3;
+  }
+  .lm-detail:empty {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  h1 {
+    font-size: var(--fs-title);
+    line-height: var(--lh-title);
+  }
+  .lm-head {
+    padding-top: var(--sp-16);
+  }
+  .lm-bar {
+    right: 52px;
+  }
+  .lm-legend {
+    bottom: 22px;
+  }
+}

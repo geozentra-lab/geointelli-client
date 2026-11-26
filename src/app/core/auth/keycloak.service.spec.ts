@@ -65,16 +65,25 @@ describe('Keycloak session restoration and refresh', () => {
     // A completed sign-in is remembered so the next visit restores it.
     expect(localStorage.getItem(SESSION_HINT_KEY)).toBe('1');
   });
-  it('restores a remembered session silently in an iframe instead of reloading the page', async () => {
+  it('restores a remembered session with a full-page check, never the silent iframe probe', async () => {
     localStorage.setItem(SESSION_HINT_KEY, '1');
     expect(await service.init()).toBe(true);
+    // No silentCheckSsoRedirectUri: with it the adapter probes third-party cookies before reading
+    // the login callback, and a slow probe (about 10 s in Edge) failed init and looped sign-in.
     expect(client.init).toHaveBeenCalledWith({
       onLoad: 'check-sso',
-      silentCheckSsoRedirectUri: window.location.origin + '/assets/silent-check-sso.html',
       flow: 'standard',
       pkceMethod: 'S256',
       checkLoginIframe: false,
     });
+  });
+  it('forgets the hint when start-up fails, so the next sign-in is not retried the same way', async () => {
+    localStorage.setItem(SESSION_HINT_KEY, '1');
+    client.authenticated = false;
+    client.init.mockRejectedValue(new Error('Timeout when waiting for 3rd party check iframe message.'));
+    expect(await service.init()).toBe(false);
+    expect(service.isLoggedIn()).toBe(false);
+    expect(localStorage.getItem(SESSION_HINT_KEY)).toBeNull();
   });
   it('forgets the hint when the remembered session has expired or the user signs out', async () => {
     localStorage.setItem(SESSION_HINT_KEY, '1');

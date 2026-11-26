@@ -18,4 +18,8 @@ export class RealtorLicenseService {
   history() {
     return this.http.get<RealtorLicenseVerificationDTO[]>(this.base + '/history');
   }
+  /** The latest submission; 404 when the user never submitted one. */
+  latest() {
+    return this.http.get<RealtorLicenseVerificationDTO>(this.base);
+  }
 }

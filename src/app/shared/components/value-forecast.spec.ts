@@ -33,9 +33,9 @@ const prediction: PropertyValuePrediction = {
   forecast3y: 667867.21,
   forecast3yLow: 174660.58,
   forecast3yHigh: 2553791.0,
-  forecast7y: 769628.07,
-  forecast7yLow: 143556.47,
-  forecast7yHigh: 4126093.24,
+  forecast5y: 721840.5,
+  forecast5yLow: 158402.11,
+  forecast5yHigh: 3289014.6,
   marketOutlook1yPct: -0.17460433540462159,
   predictionDate: '2026-11-08',
   dataThrough: '2026-07-26',
@@ -47,9 +47,13 @@ const prediction: PropertyValuePrediction = {
 describe('Value estimate and forecast', () => {
   it('derives forecast horizons, growth, notes and dates from the prediction', () => {
     const points = forecastPoints(prediction);
-    expect(points.map((p) => p.years)).toEqual([1, 3, 7]);
-    expect(points[2].change).toBeCloseTo(23.92, 1);
-    expect(forecastPoints({ ...prediction, forecast3y: null, forecast7y: 0 })).toHaveLength(1);
+    expect(points.map((p) => p.years)).toEqual([1, 3, 5]);
+    expect(points[2].change).toBeCloseTo(16.23, 1);
+    expect(forecastPoints({ ...prediction, forecast3y: null, forecast5y: 0 })).toHaveLength(1);
+    // A row scored before the 5-year forecast replaced the 7-year one keeps its 7 years.
+    const older = { ...prediction, forecast5y: null, forecast7y: 769628.07, forecast7yLow: 143556.47, forecast7yHigh: 4126093.24 };
+    expect(forecastPoints(older).map((p) => p.years)).toEqual([1, 3, 7]);
+    expect(forecastPoints({ ...older, forecast5y: 721840.5 }).map((p) => p.years)).toEqual([1, 3, 5]);
     // The server reports 0% growth when there is no prior sale; that is not real growth.
     expect(hasGrowth(prediction)).toBe(false);
     expect(hasGrowth({ ...prediction, lastSalePrice: 500000, growthPercentage: 24.2 })).toBe(true);
@@ -77,13 +81,22 @@ describe('Value estimate and forecast', () => {
     expect(text).not.toContain('Since last sale');
     expect(text).toContain('-0.2%');
     expect(el.querySelectorAll('.vf-card')).toHaveLength(3);
-    expect(text).toContain('+23.9% vs today');
+    expect(text).toContain('+16.2% vs today');
     expect(el.querySelector('svg.vf-chart')?.getAttribute('aria-label')).toContain(
-      'in 7 years $770K',
+      'in 5 years $722K',
     );
     expect(el.querySelectorAll('svg.vf-chart circle')).toHaveLength(4);
     expect(text).toContain('No qualified sale history');
     expect(text).toContain('sales through Jul 26, 2026');
+    expect(text).toContain('The 3- and 5-year values are trend scenarios');
+    expect(text).not.toContain('7-year');
+
+    // An older row: its 7-year value, said as 7 years.
+    fixture.componentRef.setInput('prediction', { ...prediction, forecast5y: null, forecast7y: 769628.07 });
+    fixture.detectChanges();
+    const older = el.textContent!.replace(/\s+/g, ' ');
+    expect(el.querySelector('svg.vf-chart')?.getAttribute('aria-label')).toContain('in 7 years $770K');
+    expect(older).toContain('The 3- and 7-year values are trend scenarios');
   });
 
   it('drops the chart and long text in the compact dialog version', () => {

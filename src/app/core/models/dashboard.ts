@@ -2,7 +2,7 @@ import { HoldingOccupancy, PortfolioGeography, PortfolioMetric } from './api';
 import { CrmTaskStatus, CrmTransactionStage, LeadStage } from './crm';
 
 /**
- * Persona dashboard cards of property-service master. Each card is read as the bearer-token user
+ * Dashboard cards of property-service master (home and each professional area). Each card is read as the bearer-token user
  * and names its scope and freshness; status ERROR is reserved for a card the server could not
  * build, EMPTY (where it exists) for a user without the underlying records.
  */

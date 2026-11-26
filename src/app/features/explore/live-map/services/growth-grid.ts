@@ -25,10 +25,12 @@ export interface GrowthMetricDef {
 }
 
 /**
- * Brown → cream → teal (ColorBrewer BrBG): colour-blind safe and readable on satellite imagery.
- * Browns are slower than the typical Miami-Dade home, teals faster.
+ * ColorBrewer BrBG-7 (DESIGN.md §10): browns are the slower classes, teals the faster ones, and the
+ * neutral middle class is the middle range of each metric's fixed breaks below: +3.5% to +5% a
+ * year (annual), +50% to +100% (total) and +1% to +2.5% (forecast). It is not centred on 0%.
+ * Colour-blind safe.
  */
-const PALETTE = ['#8c510a', '#d8b365', '#f6e8c3', '#c7eae5', '#5ab4ac', '#01665e', '#003c30'];
+const PALETTE = ['#8c510a', '#d8b365', '#f6e8c3', '#f5f5f5', '#c7eae5', '#5ab4ac', '#01665e'];
 
 function classes(breaks: number[], fmt: (n: number) => string): GrowthClass[] {
   // breaks are the six inner boundaries between the seven classes.

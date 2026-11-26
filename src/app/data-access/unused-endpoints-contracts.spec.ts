@@ -13,8 +13,6 @@ import { SavedSearchService } from './saved-search.service';
 import { ImportJobsActions as J } from '../store/import-jobs/import-jobs.actions';
 import { selectImportJobs } from '../store/import-jobs/import-jobs.selectors';
 import { retryError } from '../store/import-jobs/import-jobs.effects';
-import { AffordabilityActions } from '../store/affordability/affordability.actions';
-import { AffordabilityCard, missingText } from '../features/dashboard/finance-cards';
 import { PropertyFeatures } from '../features/property-detail/property-features';
 
 describe('Backend master endpoints the client now uses', () => {
@@ -114,61 +112,6 @@ describe('Backend master endpoints the client now uses', () => {
     expect(retryError(refused)).toBe('Retry refused: its input files are no longer available.');
   });
 
-  it('feeds the affordability card the last studio inputs and never invents figures', () => {
-    expect(missingText(['annualGrossIncome', 'downPayment', 'loanTermYears'])).toBe(
-      'annual income, down payment and loan term',
-    );
-    const fixture = TestBed.createComponent(AffordabilityCard);
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url.endsWith('/dashboards/user/affordability'))
-      .flush({
-        status: 'INCOMPLETE',
-        generatedAt: '2026-11-11T10:00:00',
-        missingInputs: ['annualGrossIncome', 'monthlyDebtPayments'],
-        affordability: null,
-      });
-    fixture.detectChanges();
-    const text = () => (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
-    expect(text()).toContain('Enter your annual income and monthly debts');
-    expect(text()).not.toContain('$');
-
-    const request = {
-      annualGrossIncome: 120000,
-      monthlyDebtPayments: 400,
-      downPayment: 60000,
-      annualInterestRate: 6.5,
-      loanTermYears: 30,
-    };
-    TestBed.inject(Store).dispatch(AffordabilityActions.calculate({ request }));
-    // The studio's own calculation also runs; only the card request matters here.
-    http.expectOne((r) => r.url.endsWith('/calculations/affordability')).flush({});
-    fixture.detectChanges();
-    const card = http.expectOne((r) => r.url.endsWith('/dashboards/user/affordability'));
-    expect(card.request.params.get('annualGrossIncome')).toBe('120000');
-    card.flush({
-      status: 'OK',
-      generatedAt: '2026-11-11T10:00:00',
-      missingInputs: [],
-      affordability: {
-        maxHomePrice: 452000,
-        maxLoanAmount: 392000,
-        maxMonthlyHousingPayment: 2800,
-        assumptions: {
-          frontEndRatioPercent: 28,
-          backEndRatioPercent: 36,
-          annualInterestRate: 6.5,
-          loanTermYears: 30,
-          rateSource: 'Supplied by the user',
-        },
-        disclaimer: 'Not a loan offer.',
-      },
-    });
-    fixture.detectChanges();
-    expect(text()).toContain('$452,000');
-    expect(text()).toContain('28/36 rule');
-  });
-
   it('lists a building’s units and shows missing feature values as unavailable', () => {
     const fixture = TestBed.createComponent(PropertyFeatures);
     fixture.componentRef.setInput('propertyId', 77);
@@ -210,7 +153,10 @@ describe('Backend master endpoints the client now uses', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
     expect(text).toContain('2026 roll year');
     expect(text).toContain('Pool 8 ft res avg');
-    expect(text).toContain('Not available');
+    // Missing condition and value are the Unavailable marker, never 0 or a dash.
+    expect(text).toContain('Unavailable');
+    const features = (fixture.nativeElement as HTMLElement).querySelector('table')!;
+    expect(features.querySelectorAll('td.na')).toHaveLength(2);
     expect(text).not.toContain('$0');
     expect(text).toContain('Units in this building');
     expect(text).toContain('Unit 4B');

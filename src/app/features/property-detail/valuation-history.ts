@@ -1,10 +1,13 @@
 import { Component, computed, effect, inject, input, untracked } from '@angular/core';
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CurrencyPipe } from '@angular/common';
 import { Store } from '@ngrx/store';
 import { RequestStatus } from '../../shared/components/request-status';
 import { Pagination } from '../../shared/components/pagination';
 import { CONFIDENCE } from '../../shared/components/value-forecast';
 import { ValuationHistoryEntry, amount } from '../../core/models/property-valuation';
+import { RECORD_KIT } from '../../shared/components/record';
+import { TABLE_KIT } from '../../shared/table';
+import { formatRecordDate } from '../../shared/data/format';
 import { PropertyInsightsActions as A } from '../../store/property-insights/property-insights.actions';
 import { selectPropertyInsights } from '../../store/property-insights/property-insights.selectors';
 
@@ -15,15 +18,10 @@ import { selectPropertyInsights } from '../../store/property-insights/property-i
  */
 @Component({
   selector: 'gz-valuation-history',
-  imports: [CurrencyPipe, DatePipe, RequestStatus, Pagination],
+  imports: [CurrencyPipe, RequestStatus, Pagination, ...RECORD_KIT, ...TABLE_KIT],
   template: `
-    <div class="panel section">
-      <div class="panelhead">
-        <div>
-          <h3>Valuation history</h3>
-          <p class="smalltext muted">Every published version, with the inputs its model run used</p>
-        </div>
-      </div>
+    <gz-record-section heading="Valuation history">
+      <p class="vh-lede">Every published version, with the inputs its model run used.</p>
       <gz-request-status
         [loading]="history().loading && !history().value"
         loadingText="Loading valuation history…"
@@ -33,67 +31,71 @@ import { selectPropertyInsights } from '../../store/property-insights/property-i
       />
       @if (history().value; as h) {
         @if (h.content.length) {
-          <div class="tablewrap">
-            <table>
+          <div [attr.aria-busy]="history().loading">
+            <table gz-table sticky="none">
+              <caption class="sr-only">
+                Published valuations, newest first
+              </caption>
               <thead>
                 <tr>
                   <th scope="col">Valued on</th>
-                  <th scope="col">Estimate</th>
-                  <th scope="col">80% range</th>
-                  <th scope="col">Inputs</th>
-                  <th scope="col">Version</th>
+                  <th scope="col" class="num">Estimate</th>
+                  <th scope="col" class="num" data-priority="2">80% range</th>
+                  <th scope="col" data-priority="3">Inputs</th>
+                  <th scope="col" data-priority="3">Source</th>
                 </tr>
               </thead>
               <tbody>
                 @for (e of h.content; track e.id) {
                   @let v = e.valuation;
+                  @let valued = day(v.method?.predictionDate);
+                  @let through = day(v.method?.dataThrough);
                   <tr>
-                    <td>
-                      {{ (v.method?.predictionDate | date: 'mediumDate') || '—' }}
-                      <div class="smalltext muted">
-                        Data through {{ (v.method?.dataThrough | date: 'mediumDate') || '—' }}
-                      </div>
-                    </td>
-                    <td>
-                      @if (shows(e)) {
-                        <b>{{ estimate(e) | currency: 'USD' : 'symbol' : '1.0-0' }}</b>
-                        <div class="smalltext muted">{{ confidence(e) }}</div>
-                      } @else {
-                        <span class="tag">{{ v.status }}</span>
+                    <td gz-cell class="nowrap" [missing]="!valued" reason="Not recorded for this version">
+                      {{ valued }}
+                      @if (through) {
+                        <span class="cell-sub">Sales through {{ through }}</span>
                       }
                     </td>
-                    <td>
-                      @if (shows(e) && v.estimate?.range80; as r) {
-                        {{ r.low | currency: 'USD' : 'symbol' : '1.0-0' }} –
-                        {{ r.high | currency: 'USD' : 'symbol' : '1.0-0' }}
-                      } @else {
-                        —
-                      }
-                    </td>
-                    <td class="smalltext">
+                    @if (shows(e)) {
+                      <td gz-cell class="num nowrap" [missing]="estimate(e) === null" reason="Not recorded for this version">
+                        {{ estimate(e) | currency: 'USD' : 'symbol' : '1.0-0' }}
+                        <span class="cell-sub">{{ confidence(e) }}</span>
+                      </td>
+                      <td gz-cell class="num nowrap" data-priority="2" [missing]="!range(e)" reason="Not recorded for this version">
+                        @if (range(e); as r) {
+                          {{ r.low | currency: 'USD' : 'symbol' : '1.0-0' }} to
+                          {{ r.high | currency: 'USD' : 'symbol' : '1.0-0' }}
+                        }
+                      </td>
+                    } @else {
+                      <td class="num" colspan="2">
+                        <span class="cell-sub">No estimate in this version</span>
+                      </td>
+                    }
+                    <td data-priority="3" class="wrap">
                       @if (e.modelEvidence?.status === 'RECORDED') {
-                        @if (e.modelEvidence?.lastSale?.price; as price) {
-                          Last sale {{ price | currency: 'USD' : 'symbol' : '1.0-0' }}
-                          @if (e.modelEvidence?.lastSale?.date; as d) {
-                            ({{ d | date: 'MMM y' }})
-                          }
-                          <br />
+                        @if (amount(e.modelEvidence?.lastSale?.price); as price) {
+                          <span class="cell-line"
+                            >Last sale {{ price | currency: 'USD' : 'symbol' : '1.0-0' }}{{
+                              day(e.modelEvidence?.lastSale?.date) ? ', ' + day(e.modelEvidence?.lastSale?.date) : ''
+                            }}</span
+                          >
                         }
                         @if (e.modelEvidence?.nearbySales; as n) {
                           @if (n.count) {
-                            {{ n.count }} nearby sales, median
-                            {{ n.medianPrice | currency: 'USD' : 'symbol' : '1.0-0' }}
+                            <span class="cell-line"
+                              >{{ n.count }} nearby sales, median
+                              {{ n.medianPrice | currency: 'USD' : 'symbol' : '1.0-0' }}</span
+                            >
                           }
                         }
                       } @else {
-                        <span class="muted">Not recorded</span>
+                        <span class="cell-sub">Inputs were not recorded</span>
                       }
                     </td>
-                    <td class="smalltext">
-                      <span class="tag" [class.amber]="e.provenance === 'SEEDED_CURRENT'">{{
-                        e.provenanceLabel || e.provenance
-                      }}</span>
-                      <div class="muted">{{ v.method?.modelVersion || '' }}</div>
+                    <td data-priority="3" [class.attention]="e.provenance === 'SEEDED_CURRENT'">
+                      {{ e.provenanceLabel || e.provenance }}
                     </td>
                   </tr>
                 }
@@ -107,16 +109,40 @@ import { selectPropertyInsights } from '../../store/property-insights/property-i
             [loading]="history().loading"
             (changed)="load($event)"
           />
-          <p class="sourcedata">
+          <p class="table-note">
             Inputs are the frozen last sale and nearby sales each model run saw, not today's
             comparables. Versions labelled "recorded before history" were stored before versions
             were archived.
           </p>
         } @else {
-          <p class="sub">No earlier valuation of this property has been archived yet.</p>
+          <p class="vh-empty">No earlier valuation of this property has been archived yet.</p>
         }
       }
-    </div>
+    </gz-record-section>
+  `,
+  styles: `
+    :host {
+      display: block;
+      min-width: 0;
+    }
+    .vh-lede {
+      margin: 0 0 var(--sp-8);
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+    }
+    .vh-empty {
+      margin: 0;
+      font-size: var(--fs-body);
+      color: var(--ink-2);
+    }
+    td.wrap {
+      white-space: normal;
+    }
+    .cell-line {
+      display: block;
+      white-space: nowrap;
+    }
   `,
 })
 export class ValuationHistory {
@@ -143,6 +169,15 @@ export class ValuationHistory {
   }
   estimate(e: ValuationHistoryEntry) {
     return amount(e.valuation.estimate?.value);
+  }
+  range(e: ValuationHistoryEntry) {
+    const low = amount(e.valuation.estimate?.range80?.low),
+      high = amount(e.valuation.estimate?.range80?.high);
+    return low !== null && high !== null ? { low, high } : null;
+  }
+  readonly amount = amount;
+  day(value: string | null | undefined) {
+    return formatRecordDate(value);
   }
   confidence(e: ValuationHistoryEntry) {
     const c = (e.valuation.estimate?.confidence ?? '').toLowerCase();

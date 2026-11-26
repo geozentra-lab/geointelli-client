@@ -1,124 +1,167 @@
+<gz-route-progress />
 <a class="skip-link" href="#main-content">Skip to content</a>
-@if (mobileOpen()) {
-  <button
-    class="nav-backdrop"
-    aria-label="Close navigation"
-    (click)="mobileOpen.set(false)"
-  ></button>
-}
-<aside id="workspace-navigation" class="sidebar" [class.mobileopen]="mobileOpen()">
-  <div class="brandrow">
-    <a class="brand" routerLink="/dashboard"><span class="brandmark">⌁</span>GeoZentra</a>
-    <button
-      id="nav-toggle-inside"
-      class="navcollapse"
-      type="button"
-      (click)="toggleNav()"
-      aria-label="Hide navigation"
-      title="Hide navigation"
-      aria-expanded="true"
-      aria-controls="workspace-navigation"
-    >
-      <gz-icon name="menu" />
-    </button>
-  </div>
-  <div class="navgroup">YOUR WORKSPACE</div>
-  <nav>
-    @for (item of nav; track item.path) {
-      <a [routerLink]="'/' + item.path" routerLinkActive="active"
-        ><gz-icon [name]="item.icon" /><span
-          >{{ item.title }}
-          @if (item.soon) {
-            <small class="navsoon">Soon</small>
+<div class="shell" [class.pro]="pro()" [class.public]="!pro()" [attr.inert]="shellInert() ? '' : null">
+  @if (pro()) {
+    <nav class="rail" aria-label="Workspace" [attr.inert]="barsInert() ? '' : null">
+      <a class="rail-mark" routerLink="/dashboard" aria-label="GeoZentra overview"
+        ><span aria-hidden="true">⌁</span></a
+      >
+      @for (group of groups(); track group.key) {
+        @if (!$first) {
+          <hr />
+        }
+        @if (group.label) {
+          <span class="rail-section" [id]="'rail-' + group.key">{{ group.label }}</span>
+        }
+        @for (item of group.items; track item.key) {
+          @if (item.locked) {
+            <span class="rail-locked" role="link" aria-disabled="true"
+              [attr.aria-describedby]="'rail-' + group.key"
+              ><gz-icon name="lock" /><span>Waiting for approval</span></span
+            >
+          } @else {
+            <a
+              [routerLink]="item.path"
+              [queryParams]="item.query"
+              [attr.aria-current]="active(item) ? 'page' : null"
+              [attr.aria-label]="group.label ? group.label + ' ' + item.label : null"
+              ><gz-icon [name]="item.icon" /><span>{{ item.label }}</span></a
+            >
           }
-        </span></a
+        }
+      }
+      <a
+        class="rail-end"
+        [routerLink]="nav.settings.path"
+        [attr.aria-current]="active(nav.settings) ? 'page' : null"
+        ><gz-icon [name]="nav.settings.icon" /><span>{{ nav.settings.label }}</span></a
+      >
+    </nav>
+  }
+  <header class="topbar" [attr.inert]="barsInert() ? '' : null">
+    @if (pro()) {
+      <a class="glyph-m" routerLink="/dashboard" aria-label="GeoZentra overview"
+        ><span aria-hidden="true">⌁</span></a
+      >
+    } @else {
+      <a class="brand" routerLink="/dashboard" aria-label="GeoZentra overview"
+        ><span class="brand-tile" aria-hidden="true">⌁</span
+        ><span class="brand-name">GeoZentra</span></a
       >
     }
-  </nav>
-  <div class="sidebottom">
-    <nav>
-      <a routerLink="/settings" routerLinkActive="active"
-        ><gz-icon name="user" /><span>Profile & preferences</span></a
+    <!-- The search and the account tools load just after start-up, outside the initial bundle. -->
+    @defer (on idle) {
+      <gz-shell-search />
+    } @placeholder {
+      <span class="search-placeholder" aria-hidden="true"
+        ><gz-icon name="search" /><span>Search address</span></span
       >
-      @if (w.auth.hasRealmRole('admin')) {
-        @for (item of adminNav; track item.path) {
-          <a [routerLink]="'/admin/' + item.path" routerLinkActive="active"
-            ><gz-icon [name]="item.icon" /><span>{{ item.title }}</span></a
-          >
+    }
+    @if (!pro()) {
+      <nav class="topnav" aria-label="Main">
+        @for (item of links(); track item.key) {
+          @if (item.locked) {
+            <span class="topnav-locked" role="link" aria-disabled="true"
+              ><gz-icon name="lock" /><span class="tl-text"
+                >{{ item.label }}<small>Waiting for approval</small></span
+              ></span
+            >
+          } @else {
+            <a [routerLink]="item.path" [attr.aria-current]="active(item) ? 'page' : null">{{
+              item.label
+            }}</a>
+          }
         }
-      }
-    </nav>
-    <div class="note">Intelligence for<br />every square foot.</div>
-  </div>
-</aside>
-<div class="main">
-  <header class="topbar">
-    <div class="crumb">
-      <!-- While the menu is open its own button (next to the logo) closes it. -->
-      @if (!navShown()) {
-        <button
-          id="nav-toggle-top"
-          class="iconbtn menuToggle"
-          type="button"
-          (click)="toggleNav()"
-          aria-label="Show navigation"
-          title="Show navigation"
-          aria-expanded="false"
-          aria-controls="workspace-navigation"
-        >
-          <gz-icon name="menu" />
+      </nav>
+    }
+    <span class="topbar-spacer"></span>
+    <div class="topbar-tools">
+      @if (signedIn()) {
+        @defer (on idle) {
+          <gz-notification-menu />
+          <gz-account-menu />
+        } @placeholder {
+          <span class="tools-placeholder" aria-hidden="true"></span>
+        }
+      } @else {
+        <button type="button" class="btn small" (click)="w.signIn()">Sign in</button>
+        <button type="button" class="btn small primary hide-phone" (click)="w.signUp()">
+          Create account
         </button>
       }
-      <span>Workspace</span><span class="slash">/</span><b>{{ title() }}</b>
-    </div>
-    <div class="toptools">
-      <button
-        type="button"
-        class="btn small"
-        (click)="w.auth.isLoggedIn() ? w.signOut() : w.signIn()"
-      >
-        {{ w.auth.isLoggedIn() ? 'Sign out' : 'Sign in' }}</button
-      ><select
-        class="role"
-        [disabled]="!w.account().profile || w.account().savingProfile"
-        aria-label="Workspace persona"
-        #personaSelect
-        (change)="changePersona(personaSelect)"
-      >
-        @for (role of personas; track role) {
-          <option [value]="role" [selected]="role === w.user().role">{{ role }}</option>
-        }</select
-      ><gz-notification-menu /><a
-        class="avatar"
-        routerLink="/settings"
-        aria-label="Profile & preferences"
-        title="Profile & preferences"
-      >
-        @if (w.user().name) {
-          {{ w.user().name.slice(0, 1) }}
-        } @else {
-          <gz-icon name="user" />
-        }
-      </a>
     </div>
   </header>
   <gz-network-status />
-  <main id="main-content" tabindex="-1" class="page"><router-outlet /></main>
-  <footer class="footer">
-    <span>GeoZentra © {{ year }}</span
-    ><span>Property intelligence, with evidence.</span>
-  </footer>
-</div>
-@if (route() !== 'compare') {
-  <gz-compare-tray />
-}
-<nav class="mobilebar">
-  @for (item of mobileNav; track item.path) {
-    <a [routerLink]="'/' + item.path" routerLinkActive="active"
-      ><gz-icon [name]="item.icon" />{{ item.label }}</a
-    >
+  <main id="main-content" tabindex="-1" class="page" [class.wide]="widePage()">
+    @if (signedIn() && here().path !== '/onboarding') {
+      <gz-access-banner />
+    }
+    <router-outlet />
+  </main>
+  @if (!here().path.startsWith('/compare')) {
+    @defer (when trayShown()) {
+      <!-- Inert behind a sheet, like the bars, so Tab stays in the sheet. -->
+      <gz-compare-tray [attr.inert]="barsInert() ? '' : null" />
+    }
   }
-</nav>
+  <nav class="bottombar" aria-label="Workspace" [attr.inert]="barsInert() ? '' : null">
+    @for (item of bottom(); track item.key) {
+      <a
+        [routerLink]="item.path"
+        [queryParams]="item.query"
+        [attr.aria-current]="active(item) ? 'page' : null"
+        ><gz-icon [name]="item.icon" /><span>{{ item.label }}</span></a
+      >
+    }
+    <button
+      type="button"
+      class="more"
+      #moreButton
+      aria-haspopup="dialog"
+      [attr.aria-expanded]="moreOpen()"
+      (click)="openMore()"
+    >
+      <gz-icon name="more" /><span>More</span>
+    </button>
+  </nav>
+</div>
+<div class="scrim" [class.show]="scrimShown()" aria-hidden="true" (click)="layer.dismissSheet()"></div>
+@if (moreOpen()) {
+  <section class="more-sheet" role="dialog" aria-modal="true" aria-labelledby="more-title">
+    <header>
+      <h2 id="more-title">More</h2>
+      <button type="button" class="iconbtn" #moreClose aria-label="Close" (click)="closeMore()">
+        <gz-icon name="close" />
+      </button>
+    </header>
+    <nav aria-label="More pages">
+      @for (item of more(); track item.key) {
+        @if (item.locked) {
+          <span class="more-locked" role="link" aria-disabled="true"
+            ><gz-icon name="lock" />{{ item.label }}<small>Waiting for approval</small></span
+          >
+        } @else {
+          <a
+            [routerLink]="item.path"
+            [queryParams]="item.query"
+            [attr.aria-current]="active(item) ? 'page' : null"
+            ><gz-icon [name]="item.icon" />{{ item.label }}</a
+          >
+        }
+      }
+      <hr />
+      @if (signedIn()) {
+        <a [routerLink]="nav.settings.path" [attr.aria-current]="active(nav.settings) ? 'page' : null"
+          ><gz-icon [name]="nav.settings.icon" />{{ nav.settings.label }}</a
+        >
+        <button type="button" (click)="w.signOut()"><gz-icon name="sign-out" />Sign out</button>
+      } @else {
+        <button type="button" (click)="w.signIn()"><gz-icon name="sign-in" />Sign in</button>
+        <button type="button" (click)="w.signUp()"><gz-icon name="user" />Create account</button>
+      }
+    </nav>
+  </section>
+}
 <!-- Live regions stay in the DOM so assistive tech is already watching them when text arrives. -->
 <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
   {{ w.ui().toastKind === 'info' ? w.ui().toast : '' }}
@@ -128,17 +171,17 @@
 </div>
 <div
   id="toast"
-  [class.show]="w.ui().toast"
-  [class.error]="w.ui().toastKind === 'error'"
+  [class.show]="toastText()"
+  [class.error]="toastIsError()"
   [class.abovetray]="trayShown()"
 >
-  <span>{{ w.ui().toast }}</span>
-  @if (w.ui().toast) {
+  <span>{{ toastText() }}</span>
+  @if (toastText()) {
     <button
       type="button"
       class="toast-close"
       aria-label="Dismiss notification"
-      (click)="w.dismissToast()"
+      (click)="dismissToast()"
     >
       &times;
     </button>

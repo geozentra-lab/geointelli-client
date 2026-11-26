@@ -28,12 +28,12 @@ describe('Backend master API contracts', () => {
     expect(r.request.params.has('maxPrice')).toBe(false);
     r.flush({ content: [] });
   });
-  it('PATCHes persona and PUTs complete preferences to separate resources', () => {
+  it('PATCHes the name and PUTs complete preferences to separate resources', () => {
     const service = TestBed.inject(UserService);
-    service.updateProfile({ persona: 'BANK_LENDER' }).subscribe();
+    service.updateProfile({ firstName: 'Ana' }).subscribe();
     let r = http.expectOne((r) => r.url.endsWith('/users/me'));
     expect(r.request.method).toBe('PATCH');
-    expect(r.request.body).toEqual({ persona: 'BANK_LENDER' });
+    expect(r.request.body).toEqual({ firstName: 'Ana' });
     r.flush({});
     const preferences = {
       minBudget: null,

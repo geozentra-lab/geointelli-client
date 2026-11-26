@@ -5,7 +5,6 @@ import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { catchError, map, of, switchMap, concatMap, tap } from 'rxjs';
 import { UserService } from '../../data-access/user.service';
 import { UserActions as A } from './user.actions';
-import { backendPersonas } from './user.selectors';
 import { apiError } from '../../core/models/api-error';
 import { SessionEvents } from '../../core/auth/session-events';
 @Injectable()
@@ -45,14 +44,10 @@ export class UserEffects extends SessionScopedEffects {
   );
   update = createEffect(() =>
     this.actions.pipe(
-      ofType(A.saveProfile, A.changePersona),
+      ofType(A.saveProfile),
       concatMap((action) =>
         this.service
-          .updateProfile(
-            action.type === A.changePersona.type
-              ? { persona: backendPersonas[action.role] }
-              : action.request,
-          )
+          .updateProfile(action.request)
           .pipe(
             map((profile) => A.profileSaved({ profile })),
             catchError((e) => of(A.profileFailed({ error: apiError(e) }))),

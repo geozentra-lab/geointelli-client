@@ -1,149 +1,76 @@
-<section class="history panel section" aria-label="Sale price history and estimate">
-  <div class="panelhead">
-    <div>
-      <h3>Sale history & estimated price</h3>
-      <p class="sub smalltext">Recorded sales by date, with the estimate shown last.</p>
-    </div>
-  </div>
-  @if (points().length) {
-    @if (selected(); as point) {
-      <div class="history-value" aria-live="polite">
-        <span class="tag" [class.copper]="point.estimate">{{
-          point.estimate ? 'Estimated price' : 'Recorded sale'
-        }}</span
-        ><strong>{{ point.price | currency: 'USD' : 'symbol' : '1.0-0' }}</strong
-        ><span class="sub">{{
-          point.date
-            ? (dateValue(point.date) | date: 'mediumDate' : 'UTC')
-            : 'Estimate date unavailable'
-        }}</span>
-      </div>
-    }
-    <div class="chart-scroll">
-      <svg
-        viewBox="0 0 900 280"
-        role="group"
-        aria-label="Recorded sale prices followed by the estimated price. Exact dates and amounts are listed below."
-      >
-        @for (tick of chart().ticks; track $index) {
-          <line x1="100" x2="800" [attr.y1]="tick.y" [attr.y2]="tick.y" class="gridline" />
-          <text x="85" [attr.y]="tick.y + 4" text-anchor="end" class="axis">
-            {{ tick.price | currency: 'USD' : 'symbol' : '1.0-0' }}
-          </text>
-        }
-        <polyline [attr.points]="chart().line" class="sales-line" />
-        <polyline [attr.points]="chart().estimateLine" class="estimate-line" />
-        @for (point of chart().points; track $index) {
-          <circle
-            [attr.cx]="point.x"
-            [attr.cy]="point.y"
-            [attr.r]="point.estimate ? 7 : 5"
-            [class.estimate-point]="point.estimate"
-            [class.highlighted]="highlighted() === $index"
-            class="price-point"
-          >
-            <title>
-              {{ point.estimate ? 'Estimated price' : 'Sale' }}:
-              {{ point.price | currency: 'USD' : 'symbol' : '1.0-0' }} ·
-              {{
-                point.date
-                  ? (dateValue(point.date) | date: 'mediumDate' : 'UTC')
-                  : 'Date unavailable'
-              }}
-            </title>
-          </circle>
-          <circle
-            class="point-hit"
-            [attr.cx]="point.x"
-            [attr.cy]="point.y"
-            r="18"
-            tabindex="0"
-            role="button"
-            [attr.aria-label]="
-              (point.estimate ? 'Estimated price: ' : 'Recorded sale: ') +
-              (point.price | currency: 'USD' : 'symbol' : '1.0-0') +
-              ', ' +
-              (point.date
-                ? (dateValue(point.date) | date: 'mediumDate' : 'UTC')
-                : 'Date unavailable')
-            "
-            (pointerenter)="hovered.set($index)"
-            (pointerleave)="hovered.set(null)"
-            (focus)="focused.set($index)"
-            (blur)="focused.set(null)"
-            (click)="active.set($index); hovered.set($index)"
-            (keydown.enter)="active.set($index)"
-            (keydown.space)="$event.preventDefault(); active.set($index)"
-            (keydown.escape)="hovered.set(null); focused.set(null)"
-          />
-          @if ($first || $last || chart().points.length <= 5) {
-            <text [attr.x]="point.x" y="248" text-anchor="middle" class="axis">
-              {{ point.date ? (dateValue(point.date) | date: 'MMM yyyy' : 'UTC') : 'Undated' }}
-            </text>
-          }
-          @if (point.estimate) {
-            <text [attr.x]="point.x" y="266" text-anchor="middle" class="estimate-label">
-              Estimate
-            </text>
-          }
-        }
-        @if (tooltip(); as point) {
-          <g
-            class="point-tooltip"
-            role="tooltip"
-            [attr.transform]="
-              'translate(' +
-              (point.x - 90) +
-              ',' +
-              (point.y > 100 ? point.y - 84 : point.y + 18) +
-              ')'
-            "
-          >
-            <rect width="180" height="70" rx="9" />
-            <text x="12" y="19" class="tooltip-kind">
-              {{ point.estimate ? 'Estimated price' : 'Recorded sale' }}
-            </text>
-            <text x="12" y="40" class="tooltip-price">
-              {{ point.price | currency: 'USD' : 'symbol' : '1.0-0' }}
-            </text>
-            <text x="12" y="58" class="tooltip-date">
-              {{
-                point.date
-                  ? (dateValue(point.date) | date: 'mediumDate' : 'UTC')
-                  : 'Date unavailable'
-              }}
-            </text>
-          </g>
-        }
-      </svg>
-    </div>
-    <div class="history-events" aria-label="Select a sale or estimate">
-      @for (point of points(); track $index) {
-        <button
-          type="button"
-          class="history-event"
-          [class.selected]="selected() === point"
-          [class.estimate-event]="point.estimate"
-          [attr.aria-pressed]="selected() === point"
-          (click)="active.set($index)"
-        >
-          <span
-            >{{ point.estimate ? 'Estimated price' : 'Sale' }} ·
-            {{
-              point.date ? (dateValue(point.date) | date: 'mediumDate' : 'UTC') : 'Date unavailable'
-            }}</span
-          ><strong>{{ point.price | currency: 'USD' : 'symbol' : '1.0-0' }}</strong>
-        </button>
-      }
-    </div>
-    <p class="sourcedata">
-      Sales are spaced by event, not elapsed time. The dashed segment connects the last recorded
-      sale to a model estimate, not a completed sale.
-    </p>
+<section class="sales" [attr.aria-labelledby]="uid + '-title'">
+  @if (headingLevel() === 2) {
+    <h2 class="sales-title" [id]="uid + '-title'">Sales and ZentraValue over time</h2>
   } @else {
-    <p class="sub spacer">No dated sale prices or estimated price are available.</p>
+    <h3 class="sales-title" [id]="uid + '-title'">Sales and ZentraValue over time</h3>
+  }
+  <p class="sales-lede">{{ lede() }}</p>
+  @if (hasChart()) {
+    <gz-time-chart
+      [points]="chartPoints()"
+      [estimate]="estimatePoint()"
+      [line]="line()"
+      [band]="band()"
+      [modelLabel]="line().length > 1 ? 'ZentraValue, monthly' : 'ZentraValue'"
+      ariaLabel="Recorded sale prices and ZentraValue estimates by date. The recorded sales are also in the table below."
+    />
+  }
+  @if (rows().length) {
+    <table gz-table sticky="none" [(sort)]="sort" class="sales-table">
+      <caption class="sr-only">
+        Recorded sales
+      </caption>
+      <thead>
+        <tr>
+          <th gz-sort="date" first="desc">Date</th>
+          <th gz-sort="price" numeric>Price</th>
+          <th scope="col" data-priority="2">Type</th>
+          <th scope="col" data-priority="3" class="num">Instrument</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (s of sortedRows(); track $index) {
+          <tr>
+            <td gz-cell [missing]="!s.date" reason="Not in the county record" class="nowrap">
+              {{ date(s.date) }}
+              @if (s.type) {
+                <span class="m-only cell-sub">{{ s.type }}</span>
+              }
+            </td>
+            <td gz-cell class="num nowrap" [missing]="s.price === null" reason="Not in the county record">
+              {{ s.price | currency: 'USD' : 'symbol' : '1.0-0' }}
+            </td>
+            <td gz-cell data-priority="2" [missing]="!s.type" reason="Not in the county record">
+              {{ s.type }}
+            </td>
+            <td gz-cell data-priority="3" class="num nowrap" [missing]="!s.instrument" reason="Not in the county record">
+              {{ s.instrument }}
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  } @else if (!loading()) {
+    <p class="sales-empty">No sales are recorded for this property.</p>
+  }
+  @if (estimate(); as e) {
+    <p class="table-note">
+      The ZentraValue of {{ e.price | currency: 'USD' : 'symbol' : '1.0-0' }}
+      @if (e.date) {
+        as of {{ date(e.date) }}
+      }
+      is a model estimate, not a sale.
+      @if (!e.date) {
+        It has no date, so it isn't on the chart.
+      }
+    </p>
+  }
+  @if (zeroTransfers()) {
+    <p class="table-note">
+      A $0 sale is a transfer recorded without a price; it isn't on the chart.
+    </p>
   }
   @if (loading()) {
-    <gz-loading-spinner label="Loading estimated price" />
+    <gz-loading-spinner label="Loading the ZentraValue" [compact]="true" />
   }
 </section>

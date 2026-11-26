@@ -1,0 +1,151 @@
+/* =================================================================================================
+   Maps (DESIGN.md §10). Built into the lazy leaflet.css bundle after Leaflet's own stylesheet
+   (angular.json, bundleName "leaflet"), so it loads with the first map and never with other pages.
+   Leaflet draws its markup outside Angular's views, so these rules can't live in component styles.
+   ================================================================================================= */
+.leaflet-container {
+  font-family: var(--font);
+}
+/* Street tiles in greyscale so the data carries the colour (a tile layer's className). */
+.gz-greyscale {
+  filter: grayscale(1) contrast(0.9) brightness(1.05);
+}
+.leaflet-container .leaflet-control-attribution {
+  font-size: var(--fs-caption);
+}
+/* Zoom: 32 px white squares with a control border and 4 px corners. */
+.leaflet-container .leaflet-control-zoom {
+  margin: var(--sp-12) var(--sp-12) 0 0;
+  border: 0;
+  box-shadow: none;
+}
+.leaflet-container .leaflet-control-zoom a,
+.leaflet-container .leaflet-control-zoom a:first-child,
+.leaflet-container .leaflet-control-zoom a:last-child {
+  width: 32px;
+  height: 32px;
+  line-height: 30px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: var(--radius-control);
+}
+.leaflet-container .leaflet-control-zoom a + a {
+  margin-top: 4px;
+}
+/* Labels: square, 1 px ink border, 12 px, no shadow. */
+.leaflet-container .leaflet-tooltip.gz-tip {
+  padding: 6px 9px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--ink);
+  font: 12px/16px var(--font);
+}
+.leaflet-container .leaflet-tooltip.gz-tip b {
+  display: block;
+  font-size: var(--fs-cell);
+  line-height: var(--lh-cell);
+  font-weight: 600;
+}
+.leaflet-container .leaflet-tooltip-top.gz-tip::before {
+  border-top-color: var(--ink);
+}
+
+/* Explore: each result is a white pill with its ZentraValue ("$985K", 12 px, tabular), or a hatched
+   dot when it has none. The card under the pointer turns its pill ink; the picked one is copper. */
+.xm-pin {
+  position: relative;
+  display: inline-block;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-color) ease,
+    color var(--dur-color) ease;
+}
+.xm-pin.pill {
+  padding: 2px 7px;
+  border: 1px solid var(--ink);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 12px/16px var(--font);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+.xm-pin.dot {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-round);
+  background: repeating-linear-gradient(135deg, var(--ink) 0 1.2px, var(--surface) 1.2px 4px);
+}
+/* Values still loading, or failed to load: a plain ink dot, never the "no ZentraValue" hatch. */
+.xm-pin.dot.plain {
+  background: var(--ink);
+  border-color: var(--surface);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+/* The dot's hit target is 24 px. */
+.xm-pin.dot::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+.xm-pin.pill:hover,
+.xm-pin.pill.hov {
+  background: var(--ink);
+  color: var(--surface);
+}
+.xm-pin.dot:hover,
+.xm-pin.dot.hov {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);
+}
+.xm-pin.pill.sel {
+  border-color: var(--copper);
+  background: var(--copper);
+  color: var(--surface);
+}
+.xm-pin.dot.sel {
+  border-color: var(--copper);
+  background: var(--copper);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+/* Parcels: ink outline, 2 px on hover; the selected or found one copper with a 12% fill. The
+   fill stays (transparent) on the others so a click inside a parcel reaches it. */
+.gz-parcel {
+  stroke: var(--ink);
+  stroke-width: 1px;
+}
+.gz-parcel.leaflet-interactive:hover {
+  stroke-width: 2px;
+}
+.gz-parcel.is-sel {
+  stroke: var(--copper);
+  stroke-width: 2px;
+  fill: var(--copper);
+  fill-opacity: 0.12;
+}
+/* Explore's picked property: its boundary in copper, heavier, so it reads at every zoom. */
+.gz-parcel-pick {
+  stroke: var(--copper);
+  stroke-width: 3px;
+  fill: var(--copper);
+  fill-opacity: 0.2;
+}
+/* While the growth squares are shown, parcels thin to white so the colours read. */
+.gz-muted .gz-parcel:not(.is-sel) {
+  stroke: var(--surface);
+  stroke-width: 0.6px;
+  stroke-opacity: 0.7;
+}
+/* Growth squares: 1 px white gaps; the hovered square outlined in ink. */
+.gz-cell {
+  stroke: var(--surface);
+  stroke-width: 1px;
+}
+.gz-cell-hover {
+  stroke: var(--ink);
+  stroke-width: 2px;
+}

@@ -8,7 +8,7 @@ export interface Page<T> {
   first?: boolean;
   last?: boolean;
 }
-export type BackendPersona = 'USER' | 'RESIDENTIAL_INVESTOR' | 'REALTOR' | 'BANK_LENDER';
+/** The account type is not here: it is a realm role, read from the entitlements (models/account.ts). */
 export interface UserDTO {
   id: number;
   keycloakUserId: string;
@@ -16,15 +16,13 @@ export interface UserDTO {
   email: string;
   firstName: string | null;
   lastName: string | null;
-  persona: BackendPersona;
-  /** Newest realtor license submission (independent of persona); null when none was submitted. */
+  /** Newest realtor license submission; null when none was submitted. */
   realtorLicenseStatus?: RealtorLicenseStatus | null;
 }
 export type RealtorLicenseStatus = 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
 export interface UserProfileUpdate {
   firstName?: string;
   lastName?: string;
-  persona?: BackendPersona;
 }
 export interface UserPreferencesDTO {
   minBudget: number | null;
