@@ -1,7 +1,7 @@
 export const environment = {
   production: false,
   // Both services are reached on the page's own origin, so the browser needs no CORS: `ng serve`
-  // forwards them with proxy.conf.json, and in production the web server does (deploy/nginx.conf).
+  // forwards them with proxy.conf.mjs, and in production the web server does (deploy/nginx.conf).
   notificationApiUrl: '/notification-api',
   apiUrl: '/api',
   // Public property browsing can remain anonymous; owner-scoped APIs use Keycloak identity.
