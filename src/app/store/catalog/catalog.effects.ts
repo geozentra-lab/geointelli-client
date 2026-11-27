@@ -167,11 +167,14 @@ export class CatalogEffects extends SessionScopedEffects {
       );
     }),
   );
+  /** Photos for a property just cached, unless they were read already (a failed read is tried again). */
   favoritePhotos = createEffect(() =>
     this.actions.pipe(
       ofType(A.cacheProperty),
+      withLatestFrom(this.store.select(selectCatalog)),
+      filter(([{ property }, s]) => !(property.id! in s.photos) || !!s.photoErrors[property.id!]),
       mergeMap(
-        ({ property }) =>
+        ([{ property }]) =>
           this.images.getPropertyImages(property.id!).pipe(
             map((images) => A.photoLoaded({ id: property.id!, images })),
             catchError((e) =>

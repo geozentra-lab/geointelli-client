@@ -312,7 +312,24 @@ describe('Admin pages', () => {
     expect(sent.id).toBe('r1');
     store.dispatch(A.refreshRequestChanged({ id: 'r1', request: request('r3', { status: 'PENDING', attempts: 0, lastErrorCode: null }) }));
     await settle();
+    // Under "Failed" the new Pending request is not slipped into the list: the pane stays on the
+    // failed one (the toast says a new request was queued).
+    expect(text(pane()!.querySelector('.pane-title'))).toBe('Sale change');
+    expect(text(pane()!.querySelector('[paneMeta]'))).toBe('Failed');
+    expect(el.querySelectorAll('.vo-table tbody tr')).toHaveLength(2);
+  });
+
+  it('moves to the retry when it is listed: no status filter', async () => {
+    const { el, settle } = await setup('/admin/valuations', ValuationOperations);
+    store.dispatch(A.refreshRequestsLoaded({ page: page([request('r1'), request('r2')]) }));
+    await settle();
+    el.querySelector<HTMLElement>('.vo-table tbody tr td')!.click();
+    await settle();
+    button(pane()!, 'Retry').click();
+    store.dispatch(A.refreshRequestChanged({ id: 'r1', request: request('r3', { status: 'PENDING', attempts: 0, lastErrorCode: null }) }));
+    await settle();
     expect(text(pane()!.querySelector('[paneMeta]'))).toBe('Pending');
+    expect(el.querySelectorAll('.vo-table tbody tr')).toHaveLength(3);
   });
 
   it('asks before rescoring every property and shows the run’s result', async () => {

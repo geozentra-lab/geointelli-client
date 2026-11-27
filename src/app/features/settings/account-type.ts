@@ -82,6 +82,15 @@ import { readableErrors } from '../onboarding/onboarding';
             }
           } @else if (licensePending()) {
             <p class="se-text">Your license is with an administrator. A license under review can’t be withdrawn; you’ll see the decision here and in the banner.</p>
+          } @else if (!a().roleRequests.value) {
+            <!-- Until the requests are read, a pending one (and its Cancel) or a declined one can't be told
+                 apart from none: the choices wait, and a failed read says so, with Retry. -->
+            <gz-request-status
+              [loading]="a().roleRequests.loading"
+              loadingText="Loading your requests…"
+              [error]="a().roleRequests.error"
+              (retry)="loadRequests()"
+            />
           } @else {
             @if (lastRejection(); as r) {
               <p class="se-text attention" role="status">
@@ -189,6 +198,9 @@ export class AccountType {
   }
   reload() {
     this.w.store.dispatch(AccountActions.loadEntitlements());
+  }
+  loadRequests() {
+    this.w.store.dispatch(AccountActions.loadRoleRequests());
   }
   cancel(id: number) {
     if (this.a().cancelling) return;

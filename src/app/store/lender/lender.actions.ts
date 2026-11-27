@@ -20,6 +20,8 @@ export const LenderActions = createActionGroup({
     'Organizations loaded': props<{ organizations: LenderOrganizationDTO[] }>(),
     'Organizations failed': props<{ error: string }>(),
     'Select organization': props<{ organizationId: number }>(),
+    /** Before the organizations are read: the one to open on, if it is among them (?org=). */
+    'Prefer organization': props<{ organizationId: number }>(),
     'Create organization': props<{ name: string }>(),
     'Organization created': props<{ organization: LenderOrganizationDTO }>(),
 

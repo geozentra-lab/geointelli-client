@@ -35,6 +35,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Workspace } from '../../shared/data/workspace';
 import { RequestStatus } from '../../shared/components/request-status';
+import { SignInPrompt } from '../../shared/components/sign-in-prompt';
 import { PropertyGallery } from '../../shared/components/property-gallery/property-gallery';
 import { CatalogActions as A } from '../../store/catalog/catalog.actions';
 import { PropertyImagesActions as I } from '../../store/property-images/property-images.actions';
@@ -82,6 +83,7 @@ export type PropertyTab = (typeof PROPERTY_TABS)[number][0];
     PropertyGallery,
     PropertyFacts,
     PropertyAssessments,
+    SignInPrompt,
     ...RECORD_KIT,
   ],
   templateUrl: './property-detail.html',
@@ -89,6 +91,8 @@ export type PropertyTab = (typeof PROPERTY_TABS)[number][0];
 })
 export class PropertyDetail implements OnDestroy {
   w = inject(Workspace);
+  /** Property reads need an account (401 otherwise): a guest is asked to sign in, and nothing is sent. */
+  readonly signedIn = this.w.auth.isLoggedIn();
   readonly tabs = PROPERTY_TABS;
   params = toSignal(inject(ActivatedRoute).paramMap);
   id = computed(() => {
@@ -149,7 +153,7 @@ export class PropertyDetail implements OnDestroy {
   constructor() {
     effect(() => {
       const id = this.id();
-      if (id === null) return;
+      if (id === null || !this.signedIn) return;
       untracked(() => {
         this.tab.set('overview');
         this.askOpen.set(false);

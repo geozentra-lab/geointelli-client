@@ -8,28 +8,30 @@ import { DEAL_STAGES, LEAD_STAGES, crmLabel } from '../../../core/models/crm';
 import { RealtorTaskItem } from '../../../core/models/dashboard';
 import { RealtorDashboardActions as A } from '../../../store/realtor-dashboard/realtor-dashboard.actions';
 import { selectRealtorDashboard } from '../../../store/realtor-dashboard/realtor-dashboard.selectors';
-import { StageBars, StageRow } from '../dash-ui';
+import { labelFor } from '../../../shared/pipes/label.pipe';
+import { Kpi, StageBars, StageRow } from '../dash-ui';
 import { OVERVIEW_STYLES, OverviewSection } from '../overview-ui';
 
 type TaskRow = RealtorTaskItem & { overdue: boolean };
 const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
 /**
- * Realtor overview (DESIGN.md §8): the lead is "Overdue and due this week", the tasks of the realtor
- * tasks-pipeline card (overdue first, then due in its window), each linking to Tasks; then two
- * columns: deals and leads by stage (ordinal ramp, each stage opens the filtered CRM list) and the
- * CRM activity feed. Tasks are marked done in Tasks: the CRM slice that can update a task is not
- * registered on this route, so the overview has no "Mark done" (PROGRESS.md, needs store work).
+ * Realtor overview (DESIGN.md §8; SOW IV "Realtor"): the lead is "Overdue and due this week", the
+ * tasks of the realtor tasks-pipeline card (overdue first, then due in its window), each linking to
+ * Tasks; then two columns: clients and leads (the counts and leads by stage, from the clients-leads
+ * card) beside deals by stage (ordinal ramp, each stage opens the filtered CRM list), and the
+ * newest leads beside the CRM activity feed. Tasks are marked done in Tasks: the CRM slice that can
+ * update a task is not registered on this route, so the overview has no "Mark done".
  */
 @Component({
   selector: 'gz-realtor-dashboard',
-  imports: [RouterLink, PageHeading, StageBars, OverviewSection, ...TABLE_KIT],
+  imports: [RouterLink, PageHeading, Kpi, StageBars, OverviewSection, ...TABLE_KIT],
   template: `<gz-heading title="CRM" />
     @switch (license()) {
       @case ('VERIFIED') {}
       @case ('PENDING_REVIEW') {
         <p class="insight ov-notice" role="status">
-          <span>Your realtor license is under review. Buyers see it as verified once it is approved.</span>
+          <span>Your realtor license is under review. Buyers can choose you in Ask about this property once it is verified.</span>
         </p>
       }
       @case ('REJECTED') {
@@ -119,10 +121,54 @@ const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digi
     <div class="ov-cols">
       <section
         gz-overview-section
+        #clientsSection
+        heading="Clients and leads"
+        [caption]="leadsCaption()"
+        [busy]="d().clientsLeads.loading && !!cl"
+      >
+        <a actions class="ov-link" routerLink="/crm/leads">Open leads</a>
+        @if (d().clientsLeads.error) {
+          <div class="insight danger ov-alert" role="alert">
+            <span>Clients and leads could not load.</span>
+            <button type="button" class="btn small" (click)="clientsSection.retried(); load()">
+              Retry
+            </button>
+          </div>
+        } @else if (!cl) {
+          <dl class="kpi-row">
+            <div gz-kpi label="Clients" [loading]="true"></div>
+            <div gz-kpi label="Open leads" [loading]="true"></div>
+            <div gz-kpi label="New leads" [loading]="true"></div>
+          </dl>
+        } @else {
+          <dl class="kpi-row">
+            <div gz-kpi label="Clients" [value]="cl.clients.total" link="/crm/clients"></div>
+            <div gz-kpi label="Open leads" [value]="cl.leads.open" caption="New, contacted or qualified"></div>
+            <div
+              gz-kpi
+              label="New leads"
+              [value]="cl.leads.byStage.NEW"
+              caption="Not contacted yet"
+              link="/crm/leads"
+              [query]="{ stage: 'NEW' }"
+            ></div>
+          </dl>
+          @if (!cl.leads.total) {
+            <div class="ov-empty">
+              <p>Leads appear here by stage, including contact requests from buyers.</p>
+              <a class="btn" routerLink="/crm/leads" [queryParams]="{ new: 1 }">New lead</a>
+            </div>
+          } @else {
+            <gz-stage-bars [rows]="leadRows()" link="/crm/leads" param="stage" label="Leads by stage" />
+          }
+        }
+      </section>
+      <section
+        gz-overview-section
         #pipelineSection
         heading="Pipeline by stage"
         [caption]="dealsCaption()"
-        [busy]="(d().tasksPipeline.loading && !!tp) || (d().clientsLeads.loading && !!cl)"
+        [busy]="d().tasksPipeline.loading && !!tp"
       >
         <a actions class="ov-link" routerLink="/crm/deals">Open deals</a>
         @if (d().tasksPipeline.error) {
@@ -144,28 +190,49 @@ const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digi
         } @else {
           <gz-stage-bars [rows]="dealRows()" link="/crm/deals" param="stage" label="Deals by stage" />
         }
-        <h3 class="ov-sub">Leads</h3>
+      </section>
+      <section
+        gz-overview-section
+        #newestSection
+        heading="Newest leads"
+        [caption]="newestCaption()"
+        [busy]="d().clientsLeads.loading && !!cl"
+      >
         @if (d().clientsLeads.error) {
           <div class="insight danger ov-alert" role="alert">
             <span>Leads could not load.</span>
-            <button type="button" class="btn small" (click)="pipelineSection.retried(); load()">
-              Retry
-            </button>
+            <button type="button" class="btn small" (click)="newestSection.retried(); load()">Retry</button>
           </div>
         } @else if (!cl) {
           @for (i of skeleton; track i) {
             <div class="row-skeleton" aria-hidden="true"></div>
           }
-        } @else if (!cl.leads.total) {
-          <div class="ov-empty">
-            <p>Leads appear here by stage, including contact requests from buyers.</p>
-            <a class="btn" routerLink="/crm/leads" [queryParams]="{ new: 1 }">New lead</a>
-          </div>
+        } @else if (!cl.leads.recent.length) {
+          <p class="ov-text">New leads appear here first, with the client and where they came from.</p>
         } @else {
-          <p class="ov-note rt-count">
-            {{ countOf(cl.leads.total, 'lead') }}, {{ cl.leads.open }} open
-          </p>
-          <gz-stage-bars [rows]="leadRows()" link="/crm/leads" param="stage" label="Leads by stage" />
+          <table gz-table class="ov-table" sticky="none">
+            <caption class="sr-only">Newest leads first</caption>
+            <thead>
+              <tr>
+                <th scope="col">Lead</th>
+                <th scope="col" data-priority="2">Stage</th>
+                <th scope="col" class="num">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (l of cl.leads.recent; track l.id) {
+                <tr>
+                  <td>
+                    <a routerLink="/crm/leads" [queryParams]="{ open: l.id }">{{ l.title }}</a>
+                    <span class="cell-sub">{{ l.clientName }} · {{ source(l.source) }}</span>
+                    <span class="cell-sub m-only">{{ label(l.stage) }}</span>
+                  </td>
+                  <td data-priority="2">{{ label(l.stage) }}</td>
+                  <td class="num nowrap">{{ day(l.createdAt) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
         }
       </section>
       @let act = d().activity;
@@ -199,7 +266,7 @@ const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digi
               <li>
                 <span class="feed-row">
                   <span class="feed-text">
-                    <b>{{ label(a.activityType) }}</b>
+                    <b>{{ source(a.activityType) }}</b>
                     @if (a.description) {
                       <small>{{ a.description }}</small>
                     }
@@ -224,8 +291,8 @@ const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digi
         color: var(--attention);
         font-weight: 600;
       }
-      .rt-count {
-        margin: 0 0 var(--sp-8);
+      .ov-cols .kpi-row {
+        margin-bottom: var(--sp-12);
       }
       .feed-text small {
         white-space: normal;
@@ -273,6 +340,15 @@ export class RealtorDashboard {
       ? 'Notes, stage changes and new records in your CRM'
       : '',
   );
+  readonly leadsCaption = computed(() => {
+    const l = this.d().clientsLeads.value?.leads;
+    return l && l.total && !this.d().clientsLeads.error ? `${countOf(l.total, 'lead')}, ${l.open} open` : '';
+  });
+  readonly newestCaption = computed(() => {
+    const l = this.d().clientsLeads.value?.leads;
+    if (!l || !l.recent.length || this.d().clientsLeads.error) return '';
+    return l.recent.length < l.total ? `${l.recent.length} newest of ${l.total}` : 'Newest first';
+  });
   readonly dealsCaption = computed(() => {
     const p = this.d().tasksPipeline.value?.pipeline;
     return p && p.total && !this.d().tasksPipeline.error
@@ -306,6 +382,11 @@ export class RealtorDashboard {
   }
   load() {
     this.w.store.dispatch(A.load());
+  }
+  /** A lead source or activity type in words ("Contact request"), known to the CRM or not. */
+  source(value: string) {
+    const word = crmLabel(value);
+    return word !== value ? word : labelFor(value);
   }
   /** "Nov 9", or "Oct 16, 2025" outside the current year (DESIGN.md §13), on the viewer's day. */
   day(value: string) {

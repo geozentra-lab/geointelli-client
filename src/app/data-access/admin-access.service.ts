@@ -9,8 +9,12 @@ import {
   RoleGrantEventDTO,
   RoleRequestReviewDTO,
   RoleRequestStatus,
+  UserSuggestionDTO,
 } from '../core/models/account';
 import { queryParams } from './http-params';
+
+/** Suggestions asked for while an admin types a user's email or name (the backend's default). */
+export const USER_SUGGESTIONS = 10;
 
 /** One page of the role-request queue; null status or role means all of them. */
 export interface RoleRequestQuery {
@@ -79,6 +83,14 @@ export class AdminAccessService {
    */
   findUser(email: string) {
     return this.http.get<UserDTO>(this.base + '/users', { params: { email } });
+  }
+  /**
+   * Suggestions while an admin types: the accounts whose email, full name ("first last") or last
+   * name starts with q, case ignored, ordered by email, at most `size` (1 to 25); [] when none.
+   * 400 when q has under 2 or over 254 characters.
+   */
+  searchUsers(q: string, size = USER_SUGGESTIONS) {
+    return this.http.get<UserSuggestionDTO[]>(this.base + '/users/search', { params: { q, size } });
   }
   /** Every grant and revoke of a user's professional roles, newest first. */
   roleGrants(userId: number) {

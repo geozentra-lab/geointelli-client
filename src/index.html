@@ -16,11 +16,11 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap"
     />
     <style>
-      /* Splash shown until Angular renders (including the sign-in check). Self-contained: it must
-         not depend on the app stylesheet or web fonts, which may still be downloading. The values
-         mirror the tokens in styles.css (paper, ink, ink-2, rule, copper, navy, copper-mark) and the
-         logo is the shell's brand (32 px tile, 20 px name), so nothing changes colour when the app
-         appears. DESIGN.md §5, Start-up. */
+      /* Splash shown until the first page has drawn (including the sign-in check), then faded out by
+         the app (core/boot-splash.ts). Self-contained: it must not depend on the app stylesheet or
+         web fonts, which may still be downloading. The values mirror the tokens in styles.css (paper,
+         ink, ink-2, rule, copper, navy, navy-2, copper-mark) and the logo is the shell's brand (32 px
+         tile, 20 px name), so nothing changes colour when the app appears. DESIGN.md §5, Start-up. */
       :root {
         --boot-paper: #f5f6f7;
         --boot-ink: #172735;
@@ -28,6 +28,7 @@
         --boot-rule: #e2e7ea;
         --boot-copper: #8a5636;
         --boot-navy: #172735;
+        --boot-navy-2: #22384a;
         --boot-mark: #d39a73;
       }
       html,
@@ -35,17 +36,30 @@
         margin: 0;
         background: var(--boot-paper);
       }
+      /* Over the app, which draws its first page underneath (inert) before the splash fades. */
       .boot {
-        min-height: 100vh;
-        min-height: 100dvh;
+        position: fixed;
+        inset: 0;
+        z-index: 100;
         display: grid;
         place-content: center;
-        justify-items: start;
-        gap: 16px;
+        justify-items: center;
+        gap: 20px;
         padding: 24px;
         box-sizing: border-box;
+        background: var(--boot-paper);
+        text-align: center;
         font: 14px/20px 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
         color: var(--boot-ink-2);
+        transition: opacity 200ms ease-out;
+      }
+      .boot.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* A fast start never flashes the splash: its contents come in after a beat. */
+      .boot > * {
+        animation: boot-in 240ms ease-out 120ms both;
       }
       .boot-brand {
         display: flex;
@@ -66,23 +80,29 @@
         color: var(--boot-mark);
         font: 20px/1 Arial, sans-serif;
       }
-      /* Progress while the app loads. */
+      /* Progress while the app loads: the in-app loading line's gradient, copper into navy. */
       .boot-bar {
-        width: 180px;
-        height: 2px;
+        width: 160px;
+        height: 3px;
+        border-radius: 2px;
         background: var(--boot-rule);
         overflow: hidden;
       }
       .boot-bar::before {
         content: '';
         display: block;
-        width: 40%;
+        width: 45%;
         height: 100%;
-        background: var(--boot-copper);
-        animation: boot-slide 1.2s ease-in-out infinite;
+        border-radius: 2px;
+        background: linear-gradient(90deg, var(--boot-mark) 0%, var(--boot-copper) 55%, var(--boot-navy-2) 100%);
+        animation: boot-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
       .boot p {
         margin: 0;
+      }
+      .boot-text {
+        display: grid;
+        gap: 6px;
       }
       .boot-slow {
         max-width: 320px;
@@ -96,16 +116,26 @@
         color: var(--boot-copper);
         font-weight: 500;
       }
+      @keyframes boot-in {
+        from {
+          opacity: 0;
+        }
+      }
       @keyframes boot-slide {
         from {
           transform: translateX(-100%);
         }
         to {
-          transform: translateX(250%);
+          transform: translateX(225%);
         }
       }
-      /* Reduced motion: nothing moves; the line stands still. */
+      /* Reduced motion: nothing moves or fades; the line stands still. */
       @media (prefers-reduced-motion: reduce) {
+        .boot,
+        .boot > * {
+          transition: none;
+          animation: none;
+        }
         .boot-bar::before {
           animation: none;
           width: 100%;
@@ -115,8 +145,8 @@
     </style>
     <script>
       // After 8 s, offer a reload. A timer rather than a CSS animation: reduced motion turns
-      // animations off, and the line must still appear. Once the app renders, the line is gone and
-      // this does nothing.
+      // animations off, and the line must still appear. Once the app has drawn, the splash is gone
+      // and this does nothing.
       setTimeout(function () {
         var slow = document.querySelector('.boot-slow');
         if (slow) slow.classList.add('is-shown');
@@ -124,16 +154,18 @@
     </script>
   </head>
   <body>
-    <app-root>
-      <div class="boot" role="status" aria-live="polite">
-        <div class="boot-brand">
-          <span class="boot-logo" aria-hidden="true">⌁</span>GeoZentra
-        </div>
-        <div class="boot-bar" aria-hidden="true"></div>
+    <!-- Inert until the splash goes (core/boot-splash.ts), so nothing under it can take focus. -->
+    <app-root inert></app-root>
+    <div class="boot" id="gz-boot" role="status" aria-live="polite">
+      <div class="boot-brand">
+        <span class="boot-logo" aria-hidden="true">⌁</span>GeoZentra
+      </div>
+      <div class="boot-bar" aria-hidden="true"></div>
+      <div class="boot-text">
         <p>Opening GeoZentra…</p>
         <p class="boot-slow">Taking longer than usual. <a href="">Reload</a></p>
-        <noscript><p>GeoZentra needs JavaScript to run.</p></noscript>
       </div>
-    </app-root>
+      <noscript><p>GeoZentra needs JavaScript to run.</p></noscript>
+    </div>
   </body>
 </html>

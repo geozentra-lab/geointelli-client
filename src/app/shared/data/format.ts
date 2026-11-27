@@ -88,6 +88,23 @@ export function formatLocalDateTime(
   return day ? `${day}, ${formatLocalTime(value)}` : null;
 }
 
+/**
+ * Today in the viewer's own calendar as yyyy-MM-dd, the form a date input reads and writes: the
+ * `max` of a date that cannot be in the future, the `min` of one that cannot be in the past.
+ */
+export function todayIso(now: Date = new Date()): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+}
+
+/**
+ * Today in UTC as yyyy-MM-dd: the day the backend checks "not in the past" against for dates it
+ * reads in UTC (a license's expiry). In a US evening it is already tomorrow.
+ */
+export function utcTodayIso(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
 /** "1 search", "3 searches": a count with its noun, pluralised. */
 export function countOf(n: number, one: string, many = one + 's'): string {
   return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;

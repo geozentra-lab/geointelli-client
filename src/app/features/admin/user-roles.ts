@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -25,10 +26,17 @@ import {
   ProfessionalRole,
   ROLE_LABELS,
   RoleGrantEventDTO,
+  UserSuggestionDTO,
   isProfessionalRole,
 } from '../../core/models/account';
+import { USER_SUGGESTIONS } from '../../data-access/admin-access.service';
 import { AdminAccessActions as A } from '../../store/admin-access/admin-access.actions';
-import { revokeKey } from '../../store/admin-access/admin-access.reducer';
+import {
+  MAX_USER_QUERY,
+  MIN_USER_QUERY,
+  revokeKey,
+  userQuery,
+} from '../../store/admin-access/admin-access.reducer';
 import { currentRoles, selectAdminAccess } from '../../store/admin-access/admin-access.selectors';
 import { AdminGate, adminAccess } from './admin-gate';
 
@@ -37,8 +45,10 @@ const REASON_MAX = 500;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
 
 /**
- * Users (`/admin/users`): find an account by the email it signs in with
- * (GET /api/admin/users?email=), which opens its role history.
+ * Users (`/admin/users`): find an account by its email or name, which opens its role history.
+ * From 2 characters the field lists the accounts whose email, full name or last name starts with
+ * the text (GET /api/admin/users/search); picking one opens it. Find with a full email looks it up
+ * exactly (GET /api/admin/users?email=), and with other text opens the only match.
  *
  * A user's role history (backend SCRUM-204, `/admin/users/:userId`, `?email=` from the queue or
  * the search that linked here): every grant and revoke of a professional role, newest first, and
@@ -49,10 +59,11 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
  */
 @Component({
   imports: [FormsModule, RouterLink, PageHeading, RequestStatus, AdminGate, ...TABLE_KIT],
+  host: { '(document:click)': 'outside($event)' },
   template: `
     <gz-heading
       [title]="named() ? 'Role history' : 'Users'"
-      [subtitle]="named() ? who() : 'Find an account by the email it signs in with, to see its role history or revoke a role.'"
+      [subtitle]="named() ? who() : 'Find an account by its email or name, to see its role history or revoke a role.'"
     >
       @if (access() === 'admin' && userId() !== null) {
         <button type="button" class="btn" [attr.aria-disabled]="grants().loading ? 'true' : null" (click)="refresh()">
@@ -61,12 +72,58 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
       }
     </gz-heading>
     @if (access() === 'admin') {
-      <form class="filterbar ur-find" role="search" aria-label="Find a user by email" (ngSubmit)="find()" novalidate>
-        <div class="formfield grow">
-          <label for="ur-email">{{ named() ? 'Find another user by email' : 'Email' }}</label>
-          <input id="ur-email" name="email" type="email" maxlength="254" autocomplete="off" spellcheck="false"
+      <form #findForm class="filterbar ur-find" role="search" aria-label="Find a user" (ngSubmit)="find()" (focusout)="leave($event)" novalidate>
+        <div class="formfield grow ur-combo">
+          <label for="ur-email">{{ named() ? 'Find another user by email or name' : 'Email or name' }}</label>
+          <input #findInput id="ur-email" name="email" type="text" maxlength="254" autocomplete="off" spellcheck="false"
+            role="combobox" aria-autocomplete="list" aria-controls="ur-suggestions"
+            [attr.aria-expanded]="listOpen()"
+            [attr.aria-activedescendant]="listOpen() && active() >= 0 ? 'ur-suggestion-' + active() : null"
             [attr.aria-describedby]="tried() && findWhy() ? 'ur-find-why' : null"
-            [ngModel]="findEmail()" (ngModelChange)="findEmail.set($event)" />
+            [ngModel]="findEmail()" (ngModelChange)="typed($event)"
+            (keydown)="key($event)" (focus)="focused.set(true)" (click)="focused.set(true)" />
+          @if (listOpen()) {
+            <div class="menu-panel ur-suggest" [attr.aria-busy]="suggest().loading ? 'true' : null">
+              @if (suggest().error) {
+                <p class="ur-suggest-note" role="alert">
+                  Suggestions could not be loaded.
+                  <button type="button" class="linkbtn" (mousedown)="$event.preventDefault()" (click)="retrySuggest()">Retry</button>
+                </p>
+              } @else if (!suggest().users.length) {
+                @if (suggest().loading) {
+                  <p class="ur-suggest-note" role="status">Searching accounts…</p>
+                } @else {
+                  <p class="ur-suggest-note" role="status">
+                    No email or name starts with “{{ suggest().query }}”. An account appears once its owner has signed in.
+                  </p>
+                }
+              }
+              <div id="ur-suggestions" role="listbox" aria-label="Matching accounts" [hidden]="!suggest().users.length || !!suggest().error">
+                @for (u of suggest().users; track u.id; let i = $index) {
+                  <div
+                    class="ur-opt"
+                    role="option"
+                    [id]="'ur-suggestion-' + i"
+                    [attr.aria-selected]="i === active()"
+                    [class.active]="i === active()"
+                    (mousedown)="$event.preventDefault()"
+                    (click)="open(u)"
+                  >
+                    <span class="ur-opt-main">{{ nameOf(u) || u.email || 'No name or email on the account' }}</span>
+                    <span class="ur-opt-sub">
+                      @if (nameOf(u)) {
+                        <span>{{ u.email ?? 'No email on the account' }}</span>
+                      }
+                      <span class="num">User ID {{ u.id }}</span>
+                    </span>
+                  </div>
+                }
+              </div>
+              @if (suggest().users.length >= pageSize && !suggest().error) {
+                <p class="ur-suggest-note ur-suggest-more">The first {{ pageSize }} by email. Type more to narrow them.</p>
+              }
+            </div>
+          }
         </div>
         <button class="btn" [attr.aria-disabled]="(tried() && findWhy()) || lookup()?.loading ? 'true' : null">
           {{ lookup()?.loading ? 'Finding…' : 'Find' }}
@@ -217,6 +274,52 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
     .ur-find-note {
       margin: calc(-1 * var(--sp-8)) 0 var(--sp-16);
     }
+    .ur-combo {
+      position: relative;
+    }
+    .ur-suggest {
+      left: 0;
+      right: 0;
+      max-height: min(420px, 60dvh);
+      overflow-y: auto;
+    }
+    .ur-opt {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    .ur-opt.active,
+    .ur-opt:hover {
+      background: var(--row-hover);
+      box-shadow: inset 3px 0 0 var(--copper);
+    }
+    .ur-opt-main {
+      font-size: var(--nav-text);
+      line-height: var(--lh-body);
+      font-weight: 500;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+    .ur-opt-sub {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 var(--sp-12);
+      font-size: var(--fs-caption);
+      line-height: var(--lh-caption);
+      color: var(--ink-2);
+      overflow-wrap: anywhere;
+    }
+    .ur-suggest-note {
+      margin: 0;
+      padding: 10px 14px;
+      font-size: var(--fs-cell);
+      line-height: var(--lh-cell);
+      color: var(--ink-2);
+    }
+    .ur-suggest-more {
+      border-top: 1px solid var(--rule);
+    }
     .ur-empty {
       margin: 0;
       padding: var(--sp-16) 0;
@@ -299,6 +402,8 @@ export class UserRoles {
   readonly s = this.w.store.selectSignal(selectAdminAccess);
   readonly access = adminAccess();
   private readonly currentTitle = viewChild<ElementRef<HTMLElement>>('currentTitle');
+  private readonly findForm = viewChild<ElementRef<HTMLFormElement>>('findForm');
+  private readonly findInput = viewChild<ElementRef<HTMLInputElement>>('findInput');
   readonly reasonMax = REASON_MAX;
   /** The user in the address; null when it isn't a whole number. */
   readonly userId = toSignal(
@@ -316,16 +421,33 @@ export class UserRoles {
   readonly email = toSignal(this.route.queryParamMap.pipe(map((q) => q.get('email')?.trim() || null)), {
     initialValue: null,
   });
-  /** The email typed to find a user, the one this page sent, and whether Find was pressed. */
+  /** The email or name typed to find a user, the email this page looked up, and whether Find was pressed. */
   readonly findEmail = signal('');
   private readonly asked = signal<string | null>(null);
   readonly tried = signal(false);
+  /** The suggestion list: open while the field has focus and 2 characters or more. */
+  readonly suggest = computed(() => this.s().userSearch);
+  readonly focused = signal(false);
+  readonly active = signal(-1);
+  readonly pageSize = USER_SUGGESTIONS;
+  readonly listOpen = computed(() => {
+    const q = userQuery(this.findEmail());
+    return this.focused() && q.length >= MIN_USER_QUERY && q.length <= MAX_USER_QUERY;
+  });
+  /** The one account the typed text matches, once its suggestions are in: Find opens it. */
+  private readonly onlyMatch = computed(() => {
+    const s = this.suggest();
+    const settled = s.query === userQuery(this.findEmail()) && !s.loading && !s.error;
+    return settled && s.users.length === 1 ? s.users[0] : null;
+  });
+  /** A full email is looked up exactly; other text needs a pick from the list, or one match. */
   readonly findWhy = computed(() => {
-    const email = this.findEmail().trim();
-    if (!email) return 'Enter the email they sign in with.';
-    if (email.length > 254) return 'An email address is at most 254 characters.';
-    if (!EMAIL_SHAPE.test(email)) return 'Enter an email address, like name@example.com.';
-    return null;
+    const text = userQuery(this.findEmail());
+    if (!text) return 'Enter an email, or the first letters of a name or email.';
+    if (text.length > MAX_USER_QUERY) return 'An email address is at most 254 characters.';
+    if (EMAIL_SHAPE.test(text) || this.onlyMatch()) return null;
+    if (text.length < MIN_USER_QUERY) return 'Enter at least 2 letters of the name or email.';
+    return 'Choose an account from the list, or enter the full email.';
   });
   /** The lookup this page sent, while it runs or when it failed. */
   readonly lookup = computed(() => {
@@ -378,13 +500,10 @@ export class UserRoles {
     effect(() => {
       const user = this.lookup()?.value;
       if (!user) return;
-      untracked(() => {
-        this.asked.set(null);
-        this.findEmail.set('');
-        this.tried.set(false);
-        void this.router.navigate(['/admin/users', user.id], { queryParams: { email: user.email } });
-      });
+      untracked(() => this.open(user));
     });
+    // Leaving the page cancels suggestions still on their way.
+    inject(DestroyRef).onDestroy(() => this.w.store.dispatch(A.searchUsersClosed()));
     // A role the history no longer shows as held has nothing to revoke: its form closes.
     effect(() => {
       const role = this.revokeFor();
@@ -423,12 +542,77 @@ export class UserRoles {
     return null;
   }
 
+  nameOf(u: UserSuggestionDTO) {
+    return [u.firstName, u.lastName]
+      .map((v) => v?.trim())
+      .filter(Boolean)
+      .join(' ');
+  }
+  typed(value: string) {
+    this.findEmail.set(value);
+    this.active.set(-1);
+    this.focused.set(true);
+    this.w.store.dispatch(A.searchUsers({ query: value }));
+  }
+  retrySuggest() {
+    this.w.store.dispatch(A.searchUsers({ query: this.findEmail(), immediate: true }));
+    this.findInput()?.nativeElement.focus();
+  }
+  key(event: KeyboardEvent) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      // A list closed with Escape opens again.
+      if (!this.focused()) return this.focused.set(true);
+      const users = this.listOpen() ? this.suggest().users : [];
+      if (!users.length) return;
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      const current = this.active();
+      // Nothing highlighted yet: Down starts at the first account, Up at the last.
+      this.active.set(
+        current < 0 ? (step > 0 ? 0 : users.length - 1) : (current + step + users.length) % users.length,
+      );
+    } else if (event.key === 'Enter') {
+      // A highlighted account opens; otherwise the form's Find runs.
+      const pick = this.listOpen() ? this.suggest().users[this.active()] : undefined;
+      if (pick) {
+        event.preventDefault();
+        this.open(pick);
+      }
+    } else if (event.key === 'Escape' && this.listOpen()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.focused.set(false);
+      this.active.set(-1);
+    }
+  }
+  /** Focus left the search (Find and the list are inside it): the list closes. */
+  leave(event: FocusEvent) {
+    if (!this.findForm()?.nativeElement.contains(event.relatedTarget as Node | null)) this.focused.set(false);
+  }
+  outside(event: MouseEvent) {
+    if (!this.findForm()?.nativeElement.contains(event.target as Node)) this.focused.set(false);
+  }
+  /** Opens an account's role history, named by its email when it has one. */
+  open(user: { id: number; email: string | null }) {
+    this.asked.set(null);
+    this.findEmail.set('');
+    this.tried.set(false);
+    this.active.set(-1);
+    this.focused.set(false);
+    this.w.store.dispatch(A.searchUsersClosed());
+    void this.router.navigate(['/admin/users', user.id], {
+      queryParams: user.email ? { email: user.email } : {},
+    });
+  }
+
   find() {
     this.tried.set(true);
     if (this.findWhy() || this.lookup()?.loading) return;
-    const email = this.findEmail().trim();
-    this.asked.set(email);
-    this.w.store.dispatch(A.findUser({ email }));
+    const text = userQuery(this.findEmail());
+    const only = this.onlyMatch();
+    if (!EMAIL_SHAPE.test(text) && only) return this.open(only);
+    this.asked.set(text);
+    this.w.store.dispatch(A.findUser({ email: text }));
   }
   refresh() {
     const userId = this.userId();

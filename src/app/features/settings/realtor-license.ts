@@ -14,16 +14,11 @@ import { Workspace } from '../../shared/data/workspace';
 import { RequestStatus } from '../../shared/components/request-status';
 import { RECORD_KIT } from '../../shared/components/record';
 import { TABLE_KIT } from '../../shared/table';
-import { formatLocalDate, formatRecordDate } from '../../shared/data/format';
+import { formatLocalDate, formatRecordDate, utcTodayIso } from '../../shared/data/format';
 import { RealtorLicenseActions as A } from '../../store/realtor-license/realtor-license.actions';
 import { selectRealtorLicense } from '../../store/realtor-license/realtor-license.selectors';
 import { LICENSE_STATUS_LABELS, RealtorLicenseVerificationDTO } from '../../core/models/realtor-license';
 
-/** Today in the viewer's own calendar, as yyyy-MM-dd (the earliest expiry the backend accepts). */
-const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 const STATES: Record<string, string> = { FL: 'Florida' };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -61,6 +56,10 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
               Not verified{{ l.decidedAt ? ' on ' + day(l.decidedAt) : '' }}:
               {{ l.rejectionReason ? l.rejectionReason + '.' : 'no reason was given.' }}
               Correct the details below and submit again.
+            </p>
+          } @else if (canSubmit()) {
+            <p class="se-text attention" role="status">
+              This license expired on {{ calendar(l.licenseExpirationDate!) }}. Submit the renewed license below.
             </p>
           }
           <gz-record-group heading="Latest submission">
@@ -168,11 +167,19 @@ export class RealtorLicense {
   readonly s = this.w.store.selectSignal(selectRealtorLicense);
   readonly latest = computed(() => this.s().history.value?.[0] ?? null);
   readonly earlier = computed(() => this.s().history.value?.slice(1) ?? []);
-  /** Allowed with no submission yet, or after a rejection. */
-  readonly canSubmit = computed(
-    () => this.s().history.value !== null && (!this.latest() || this.latest()!.status === 'REJECTED'),
-  );
-  readonly minDate = today();
+  /**
+   * Allowed with no submission yet, after a rejection, or once a verified license has expired (the
+   * expiry run revokes the realtor role; the renewed license is submitted here). As the backend
+   * counts it: a verified license with no expiry date, or one expiring today (UTC) or later, blocks.
+   */
+  readonly canSubmit = computed(() => {
+    if (this.s().history.value === null) return false;
+    const l = this.latest();
+    if (!l || l.status === 'REJECTED') return true;
+    return l.status === 'VERIFIED' && !!l.licenseExpirationDate && l.licenseExpirationDate < utcTodayIso();
+  });
+  /** The backend refuses an expiry before today in UTC (already tomorrow in a US evening). */
+  readonly minDate = utcTodayIso();
   readonly holder = signal('');
   readonly number = signal('');
   readonly expires = signal('');
@@ -193,10 +200,11 @@ export class RealtorLicense {
     effect(() => {
       if (this.w.auth.isLoggedIn()) untracked(() => !this.s().history.value && !this.s().history.loading && this.load());
     });
-    // A resubmission starts from the rejected details, so only the wrong field needs fixing.
+    // A resubmission starts from the rejected or expired details, so only what changed needs typing
+    // (an expired license's date is in the past, so it is left empty).
     effect(() => {
       const l = this.latest();
-      if (!l || l.status !== 'REJECTED' || l.id === this.filledFrom) return;
+      if (!l || !this.canSubmit() || l.id === this.filledFrom) return;
       untracked(() => {
         this.filledFrom = l.id;
         this.holder.set(l.licenseHolderName);

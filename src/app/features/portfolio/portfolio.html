@@ -41,9 +41,11 @@
           <button class="btn" type="button" (click)="newPortfolio()">Cancel edit</button>
         }
       </div>
+      @if (failedForm === 'portfolio' && w.portfolio().errors.save; as error) {
+        <p class="field-error" role="alert">Not saved. {{ error }}</p>
+      }
     </fieldset>
   </form>
-  <gz-request-status [error]="w.portfolio().errors.save" [showRetry]="false" />
   <div class="actions section">
     <select
       class="field"
@@ -295,8 +297,14 @@
               id="acquired"
               name="acquired"
               type="date"
+              [max]="today()"
               [(ngModel)]="holding.acquisitionDate"
+              [attr.aria-invalid]="future(holding.acquisitionDate) || null"
+              [attr.aria-describedby]="future(holding.acquisitionDate) ? 'acquired-error' : null"
             />
+            @if (future(holding.acquisitionDate)) {
+              <p class="field-error" id="acquired-error">Can't be in the future.</p>
+            }
           </div>
           <div class="formfield">
             <label for="purchase">Purchase price ($)</label
@@ -355,8 +363,16 @@
                 id="balanceDate"
                 name="balanceDate"
                 type="date"
+                [max]="today()"
                 [(ngModel)]="holding.balanceAsOfDate"
+                [attr.aria-invalid]="future(holding.balanceAsOfDate) || null"
+                [attr.aria-describedby]="future(holding.balanceAsOfDate) ? 'balanceDate-error' : null"
               />
+              @if (future(holding.balanceAsOfDate)) {
+                <p class="field-error" id="balanceDate-error">
+                  Can't be in the future. Use the date of your latest statement.
+                </p>
+              }
             </div>
             <div class="formfield">
               <label for="holdingRate">Annual interest rate (%)</label
@@ -419,6 +435,9 @@
         >
           {{ editingHolding === null ? 'Add holding' : 'Save holding' }}
         </button>
+        @if (failedForm === 'holding' && w.portfolio().errors.save; as error) {
+          <p class="field-error" role="alert">Not saved. {{ error }}</p>
+        }
         <p class="sourcedata">
           Amounts describe the full property. The summary applies ownership share once.
         </p>
@@ -427,7 +446,7 @@
     @if (w.portfolio().selectedHoldingId; as holdingId) {
       <div class="panel section">
         <h3>Actual financial records · {{ holdingName(holdingId) }}</h3>
-        <form class="section" (ngSubmit)="recordPage(0)">
+        <form class="section" (ngSubmit)="filterRecords()">
           <fieldset class="filterbar" [disabled]="w.portfolio().saving > 0">
             <div class="formfield">
               <label for="recordFrom">From</label
@@ -543,9 +562,18 @@
                 id="transactionDate"
                 name="transactionDate"
                 type="date"
+                [max]="today()"
                 [(ngModel)]="transactionDate"
+                [attr.aria-invalid]="future(transactionDate) || null"
+                [attr.aria-describedby]="future(transactionDate) ? 'transactionDate-error' : null"
                 required
               />
+              @if (future(transactionDate)) {
+                <p class="field-error" id="transactionDate-error">
+                  Can't be in the future. Record cash on the day it was received or paid; the
+                  covered period can run ahead.
+                </p>
+              }
             </div>
             <div class="formfield">
               <label for="recordDescription">Notes</label
@@ -569,6 +597,9 @@
               Save record</button
             ><button class="btn" type="button" (click)="resetRecord()">New record</button>
           </div>
+          @if (failedForm === 'record' && w.portfolio().errors.save; as error) {
+            <p class="field-error" role="alert">Not saved. {{ error }}</p>
+          }
           <p class="sourcedata">
             Actual cash transactions, not projected rent or profit. Mortgage payments can include
             principal.

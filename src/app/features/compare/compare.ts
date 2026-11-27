@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Workspace } from '../../shared/data/workspace';
 import { PageHeading } from '../../shared/components/page-heading';
+import { SignInPrompt } from '../../shared/components/sign-in-prompt';
 import { PropertyCompareActions } from '../../store/property-compare/property-compare.actions';
 import { selectCompareSelection } from '../../store/property-compare/property-compare.selectors';
 import { SideBySide } from './side-by-side';
@@ -19,49 +20,58 @@ type View = 'side' | 'sales';
  * mounted, so switching keeps what was chosen and typed. Address changes replace the entry.
  */
 @Component({
-  imports: [PageHeading, SideBySide, ComparableSales],
+  imports: [PageHeading, SideBySide, ComparableSales, SignInPrompt],
   template: `
     <gz-heading
       title="Compare"
       subtitle="Up to five properties field by field, or the recorded sales most like one property."
     />
-    <div class="tabs" role="tablist" aria-label="Compare">
-      @for (t of tabs; track t[0]) {
-        <button
-          type="button"
-          role="tab"
-          [id]="'cp-tab-' + t[0]"
-          [attr.aria-selected]="view() === t[0]"
-          [attr.aria-controls]="'cp-panel-' + t[0]"
-          [attr.tabindex]="view() === t[0] ? 0 : -1"
-          [class.active]="view() === t[0]"
-          (click)="show(t[0])"
-          (keydown)="onTabKey($event)"
-        >
-          {{ t[1] }}
-        </button>
-      }
-    </div>
-    <div
-      role="tabpanel"
-      id="cp-panel-side"
-      aria-labelledby="cp-tab-side"
-      [hidden]="view() !== 'side'"
-    >
-      <gz-side-by-side />
-    </div>
-    <div
-      role="tabpanel"
-      id="cp-panel-sales"
-      aria-labelledby="cp-tab-sales"
-      [hidden]="view() !== 'sales'"
-    >
-      <gz-comparable-sales [startId]="routeId()" (picked)="openSales($event)" />
-    </div>
+    @if (!signedIn) {
+      <gz-sign-in-prompt
+        heading="Sign in to compare properties"
+        text="Comparing properties side by side, and the recorded sales most like one, needs an account."
+      />
+    } @else {
+      <div class="tabs" role="tablist" aria-label="Compare">
+        @for (t of tabs; track t[0]) {
+          <button
+            type="button"
+            role="tab"
+            [id]="'cp-tab-' + t[0]"
+            [attr.aria-selected]="view() === t[0]"
+            [attr.aria-controls]="'cp-panel-' + t[0]"
+            [attr.tabindex]="view() === t[0] ? 0 : -1"
+            [class.active]="view() === t[0]"
+            (click)="show(t[0])"
+            (keydown)="onTabKey($event)"
+          >
+            {{ t[1] }}
+          </button>
+        }
+      </div>
+      <div
+        role="tabpanel"
+        id="cp-panel-side"
+        aria-labelledby="cp-tab-side"
+        [hidden]="view() !== 'side'"
+      >
+        <gz-side-by-side />
+      </div>
+      <div
+        role="tabpanel"
+        id="cp-panel-sales"
+        aria-labelledby="cp-tab-sales"
+        [hidden]="view() !== 'sales'"
+      >
+        <gz-comparable-sales [startId]="routeId()" (picked)="openSales($event)" />
+      </div>
+    }
   `,
 })
 export class Compare {
   private readonly w = inject(Workspace);
+  /** Comparing needs an account (401 otherwise): a guest is asked to sign in, and nothing is sent. */
+  readonly signedIn = this.w.auth.isLoggedIn();
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly params = toSignal(this.route.paramMap, {
@@ -98,6 +108,8 @@ export class Compare {
     effect(() => {
       const raw = this.ids();
       const selection = this.selection();
+      // A guest's link waits for sign-in: the comparison needs an account (401 otherwise).
+      if (!this.signedIn) return;
       untracked(() => {
         const changed = raw !== this.seen;
         this.seen = raw;

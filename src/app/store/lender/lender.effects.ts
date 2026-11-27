@@ -1,7 +1,7 @@
 import { SessionScopedEffects } from '../session-scoped-effects';
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Store } from '@ngrx/store';
+import { Action, Store } from '@ngrx/store';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import {
   EMPTY,
@@ -150,7 +150,14 @@ export class LenderEffects extends SessionScopedEffects {
           ? EMPTY
           : this.service.updateApplication(s.selectedId, id, request).pipe(
               map((application) => A.applicationSaved({ application, created: false })),
-              catchError((e) => of(A.writeFailed({ write: 'update', error: apiError(e) }))),
+              // 409: another member moved it first; 404: it is gone. The list and the pipeline are
+              // read again, so the pane stops offering moves from a stage it is no longer in.
+              catchError((e) => {
+                const failed = A.writeFailed({ write: 'update', error: apiError(e) });
+                return e instanceof HttpErrorResponse && (e.status === 409 || e.status === 404)
+                  ? of<Action[]>(failed, A.loadPipeline(), A.loadApplications({ page: s.page, stage: s.stage }))
+                  : of<Action[]>(failed);
+              }),
             ),
       ),
     ),

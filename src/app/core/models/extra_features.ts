@@ -15,8 +15,9 @@ export interface PropertyExtraFeatures {
   rollYear: number | null;
   history: boolean;
   features: ExtraFeature[];
-  page: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
+  /** Paging: history answers only (one roll year is sent whole, and nulls are left out). */
+  page?: number;
+  size?: number;
+  totalElements?: number;
+  totalPages?: number;
 }

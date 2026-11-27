@@ -1,6 +1,7 @@
 import { SessionScopedEffects } from '../session-scoped-effects';
-import { Action } from '@ngrx/store';
+import { Action, Store } from '@ngrx/store';
 import { Injectable, inject } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import {
   Observable,
@@ -12,11 +13,13 @@ import {
   from,
   mergeMap,
   takeUntil,
+  withLatestFrom,
 } from 'rxjs';
 import { FavoriteService } from '../../data-access/favorite.service';
 import { PropertyService } from '../../data-access/property.service';
 import { favoritesActions as A } from './favorites.actions';
 import { CatalogActions } from '../catalog/catalog.actions';
+import { selectCatalog } from '../catalog/catalog.selectors';
 import { UserActions } from '../user/user.actions';
 import { UiActions } from '../ui/ui.actions';
 import { apiError } from '../../core/models/api-error';
@@ -25,6 +28,7 @@ export class FavoritesEffects extends SessionScopedEffects {
   private actions = inject(Actions);
   private service = inject(FavoriteService);
   private properties = inject(PropertyService);
+  private store = inject(Store);
   load = createEffect(() =>
     this.actions.pipe(
       ofType(A.load, UserActions.loaded),
@@ -48,16 +52,26 @@ export class FavoritesEffects extends SessionScopedEffects {
                 .remove(a.propertyId)
                 .pipe(map(() => A.removed({ propertyId: a.propertyId })));
         return request.pipe(
-          catchError((e) => of(A.failed({ error: apiError(e), propertyId: a.propertyId }))),
+          catchError((e) => {
+            const failed = A.failed({ error: apiError(e), propertyId: a.propertyId });
+            // Out of step with the server (changed in another tab or device: 500 "already a
+            // favorite", or 404/409): sending it again fails the same way, so the list is read
+            // again and the heart shows what is saved. A lost connection or a 503 keeps Retry.
+            return e instanceof HttpErrorResponse && [404, 409, 500].includes(e.status)
+              ? of<Action[]>(failed, A.load())
+              : of<Action[]>(failed);
+          }),
         );
       }),
     ),
   );
+  /** Each favorite's record, unless the catalog already holds it (every load used to ask again). */
   hydrate = createEffect(() =>
     this.actions.pipe(
       ofType(A.loaded),
-      switchMap(({ items }) =>
-        from(items.filter((i) => i.favorite)).pipe(
+      withLatestFrom(this.store.select(selectCatalog)),
+      switchMap(([{ items }, catalog]) =>
+        from(items.filter((i) => i.favorite && !catalog.details[i.propertyId])).pipe(
           map((item) => A.loadProperty({ propertyId: item.propertyId })),
         ),
       ),

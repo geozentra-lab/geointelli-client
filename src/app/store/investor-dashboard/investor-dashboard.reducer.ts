@@ -1,64 +1,83 @@
 import { createReducer, on } from '@ngrx/store';
-import { Page, PortfolioDTO, PortfolioSummaryDTO } from '../../core/models/api';
+import { Page, PortfolioDTO } from '../../core/models/api';
 import {
+  InvestorIncomeExpensesReturnsCardDTO,
   InvestorOccupancyExposureCardDTO,
+  InvestorOpportunitiesCardDTO,
   InvestorValueEquityDebtCardDTO,
 } from '../../core/models/dashboard';
 import { Remote, cardDone, done, failed, idle, pending } from '../remote';
 import { InvestorDashboardActions as A } from './investor-dashboard.actions';
+
+/** The four cards of GET /dashboards/investor, each with its own state. */
+export type InvestorCardKey = 'valueEquityDebt' | 'incomeExpensesReturns' | 'occupancyExposure' | 'opportunities';
+export const INVESTOR_CARDS: readonly InvestorCardKey[] = [
+  'valueEquityDebt',
+  'incomeExpensesReturns',
+  'occupancyExposure',
+  'opportunities',
+];
+const NOT_RETURNED = 'This card was not returned.';
+
 export interface InvestorDashboardState {
   portfolios: Remote<Page<PortfolioDTO>>;
   /** The scope of the cards: one portfolio, or null for all of them. */
   portfolioId: number | null;
   valueEquityDebt: Remote<InvestorValueEquityDebtCardDTO>;
+  incomeExpensesReturns: Remote<InvestorIncomeExpensesReturnsCardDTO>;
   occupancyExposure: Remote<InvestorOccupancyExposureCardDTO>;
-  /** Portfolio the summary belongs to; null when the scope covers several portfolios. */
-  summaryFor: number | null;
-  summary: Remote<PortfolioSummaryDTO>;
+  opportunities: Remote<InvestorOpportunitiesCardDTO>;
 }
+const cards = (s: InvestorDashboardState, keep: boolean) => ({
+  valueEquityDebt: pending(s.valueEquityDebt, keep),
+  incomeExpensesReturns: pending(s.incomeExpensesReturns, keep),
+  occupancyExposure: pending(s.occupancyExposure, keep),
+  opportunities: pending(s.opportunities, keep),
+});
+/** A card with status ERROR keeps its error; a missing one says so. */
+const card = <T extends { status: string; error: string | null }>(r: Remote<T>, c: T | null) =>
+  c ? cardDone(c) : failed(r, NOT_RETURNED);
+
 export const investorDashboardReducer = createReducer<InvestorDashboardState>(
   {
     portfolios: idle(),
     portfolioId: null,
     valueEquityDebt: idle(),
+    incomeExpensesReturns: idle(),
     occupancyExposure: idle(),
-    summaryFor: null,
-    summary: idle(),
+    opportunities: idle(),
   },
-  on(A.load, (s) => ({
-    ...s,
-    portfolios: pending(s.portfolios),
-    valueEquityDebt: pending(s.valueEquityDebt),
-    occupancyExposure: pending(s.occupancyExposure),
-  })),
+  on(A.load, (s) => ({ ...s, portfolios: pending(s.portfolios), ...cards(s, true) })),
   // A portfolio deleted elsewhere drops out of scope instead of answering 404.
   on(A.portfoliosLoaded, (s, { page }) => ({
     ...s,
     portfolios: done(page),
     portfolioId: page.content.some((p) => p.id === s.portfolioId) ? s.portfolioId : null,
   })),
+  on(A.portfoliosFailed, (s, { error }) => ({ ...s, portfolios: failed(s.portfolios, error) })),
   // Another scope never shows the previous one's figures, even for a moment.
-  on(A.selectScope, (s, { portfolioId }) => ({
-    ...s,
-    portfolioId,
-    valueEquityDebt: pending(s.valueEquityDebt, false),
-    occupancyExposure: pending(s.occupancyExposure, false),
-    summaryFor: null,
-    summary: idle(),
-  })),
-  on(A.valueEquityDebtLoaded, (s, { card }) =>
-    card.portfolioId === s.portfolioId ? { ...s, valueEquityDebt: cardDone(card) } : s,
+  on(A.selectScope, (s, { portfolioId }) => ({ ...s, portfolioId, ...cards(s, false) })),
+  // An answer for a scope no longer in view is dropped.
+  on(A.dashboardLoaded, (s, { dashboard: d }) =>
+    d.portfolioId === s.portfolioId
+      ? {
+          ...s,
+          valueEquityDebt: card(s.valueEquityDebt, d.valueEquityDebt),
+          incomeExpensesReturns: card(s.incomeExpensesReturns, d.incomeExpensesReturns),
+          occupancyExposure: card(s.occupancyExposure, d.occupancyExposure),
+          opportunities: card(s.opportunities, d.opportunities),
+        }
+      : s,
   ),
-  on(A.occupancyExposureLoaded, (s, { card }) =>
-    card.portfolioId === s.portfolioId ? { ...s, occupancyExposure: cardDone(card) } : s,
+  on(A.dashboardFailed, (s, { portfolioId, error }) =>
+    portfolioId === s.portfolioId
+      ? {
+          ...s,
+          valueEquityDebt: failed(s.valueEquityDebt, error),
+          incomeExpensesReturns: failed(s.incomeExpensesReturns, error),
+          occupancyExposure: failed(s.occupancyExposure, error),
+          opportunities: failed(s.opportunities, error),
+        }
+      : s,
   ),
-  on(A.loadSummary, (s, { portfolioId }) => ({
-    ...s,
-    summaryFor: portfolioId,
-    summary: pending(s.summary, portfolioId === s.summaryFor),
-  })),
-  on(A.summaryLoaded, (s, { portfolioId, summary }) =>
-    portfolioId === s.summaryFor ? { ...s, summary: done(summary) } : s,
-  ),
-  on(A.cardFailed, (s, { card, error }) => ({ ...s, [card]: failed(s[card], error) })),
 );

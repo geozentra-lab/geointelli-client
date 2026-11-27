@@ -195,6 +195,29 @@ describe('CRM', () => {
     expect(el.querySelector('.desk-slot')).toBeNull();
   });
 
+  it('says a client list that could not be read, with Retry, never "add a client first"', async () => {
+    const { el, settle } = await setup('/crm/leads');
+    store.dispatch(A.optionsLoaded({ clients: [], leads: [], deals: [], failed: ['clients'] }));
+    store.dispatch(A.leadsLoaded({ page: page([]) }));
+    await settle();
+    button(el, 'New lead').click();
+    await settle();
+    const pane = el.querySelector('.desk-slot gz-record-pane')!;
+    expect(pane.textContent).not.toContain('add a client first');
+    expect(text(pane.querySelector('.cf-hint[role=alert]'))).toBe(
+      'Your clients, leads and deals could not all be loaded, so the lists below may be missing some. Retry',
+    );
+    const asked = of(A.loadOptions.type).length;
+    button(pane, 'Retry').click();
+    expect(of(A.loadOptions.type)).toHaveLength(asked + 1);
+    // Read again: a list that fails keeps the one already held.
+    store.dispatch(A.optionsLoaded({ clients: [client(1)], leads: [], deals: [] }));
+    store.dispatch(A.optionsLoaded({ clients: [], leads: [], deals: [], failed: ['clients'] }));
+    await settle();
+    expect(pane.querySelector('.cf-hint[role=alert]')).not.toBeNull();
+    expect(pane.querySelector<HTMLSelectElement>('#cf-client')!.options.length).toBe(2);
+  });
+
   it('changes a client from one form, sending only what changed', async () => {
     const { el, settle } = await setup('/crm/clients');
     store.dispatch(A.clientsLoaded({ page: page([client(1, { phone: '+1 305 555 0101' })]) }));

@@ -441,14 +441,18 @@ export class ValuationOperations {
         if (this.lastAction() !== null && this.lastAction() !== id) this.lastAction.set(null);
       });
     });
-    // A retry answers with a new request at the top of the list: the pane moves to it.
+    // A retry answers with a new request, listed first when it belongs under the filter shown: the
+    // pane moves to it. Only to a request that wasn't listed before the click (under "Failed" the
+    // first row is another failed request, and the pane stays where it is).
     effect(() => {
       const id = this.lastAction();
       const s = this.s();
       if (id === null || s.acting[id] || s.actionError) return;
       untracked(() => {
         const first = this.rows()[0];
-        if (this.retried && first && first.requestId !== id) {
+        const isNew = !!first && !this.listedBeforeRetry.has(first.requestId);
+        if (this.retried && first && first.requestId !== id && !isNew) this.retried = false;
+        if (this.retried && first && first.requestId !== id && isNew) {
           this.retried = false;
           this.selectedId.set(first.requestId);
           afterNextRender(() => document.querySelector<HTMLElement>('.desk-slot .pane-title')?.focus(), { injector: this.injector });
@@ -524,13 +528,22 @@ export class ValuationOperations {
     const next = this.rows()[this.paneIndex() + by];
     if (next) this.openRequest(next.requestId);
   }
-  /** One key per click: if the request is resent, the server still queues a single retry. */
+  /**
+   * One key per failed request, kept for the visit: a second click (or a resent request) gets the
+   * retry already queued back from the server instead of queueing another one.
+   */
+  private readonly retryKeys = new Map<string, string>();
+  /** The requests listed when Retry was pressed: the one the retry answers with is the new one. */
+  private listedBeforeRetry = new Set<string>();
   retry(r: ValuationRefreshRequestDTO) {
     if (!this.canRetry(r) || this.busy() || !this.w.requireAccount('retry revaluations')) return;
+    this.listedBeforeRetry = new Set(this.rows().map((x) => x.requestId));
     this.lastAction.set(r.requestId);
     this.retried = true;
     document.querySelector<HTMLElement>('.desk-slot .pane-title')?.focus();
-    this.w.store.dispatch(A.retryRefresh({ id: r.requestId, idempotencyKey: crypto.randomUUID() }));
+    const key = this.retryKeys.get(r.requestId) ?? crypto.randomUUID();
+    this.retryKeys.set(r.requestId, key);
+    this.w.store.dispatch(A.retryRefresh({ id: r.requestId, idempotencyKey: key }));
   }
   async cancel(r: ValuationRefreshRequestDTO) {
     if (this.busy()) return;

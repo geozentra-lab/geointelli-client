@@ -10,7 +10,6 @@ import {
   switchMap,
   concatMap,
   mergeMap,
-  from,
   withLatestFrom,
 } from 'rxjs';
 import { AlertService } from '../../data-access/alert.service';
@@ -76,12 +75,6 @@ export class AlertsEffects extends SessionScopedEffects {
       ),
     ),
   );
-  monitorList = createEffect(() =>
-    this.actions.pipe(
-      ofType(A.loaded),
-      mergeMap(({ page }) => from(page.content).pipe(map((item) => A.monitoring({ id: item.id })))),
-    ),
-  );
   evaluate = createEffect(() =>
     this.actions.pipe(
       ofType(A.evaluate),
@@ -93,7 +86,14 @@ export class AlertsEffects extends SessionScopedEffects {
               UiActions.toast({ message: 'Evaluation scheduled.' }),
             ),
           ),
-          catchError((e) => of(A.monitoringFailed({ id, error: apiError(e) }))),
+          // Said in a toast too: the monitoring status reads share the inline message, the click doesn't.
+          catchError((e) => {
+            const error = apiError(e);
+            return of(
+              A.monitoringFailed({ id, error }),
+              UiActions.toast({ message: 'Evaluation not scheduled. ' + error, kind: 'error' }),
+            );
+          }),
         ),
       ),
     ),

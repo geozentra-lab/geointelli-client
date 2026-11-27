@@ -9,6 +9,7 @@ import { PageHeading } from '../../shared/components/page-heading';
 import { RequestStatus } from '../../shared/components/request-status';
 import { Pagination } from '../../shared/components/pagination';
 import { ConfirmationService } from '../../shared/components/confirm-dialog';
+import { todayIso } from '../../shared/data/format';
 import { portfolioActions as A } from '../../store/portfolio/portfolio.actions';
 import { PortfolioMutation } from '../../store/portfolio/portfolio.model';
 import {
@@ -36,6 +37,15 @@ const emptyHolding = () => ({
   leaseStartDate: '',
   leaseEndDate: '',
 });
+type PortfolioForm = 'portfolio' | 'holding' | 'record';
+const formOf = (kind: PortfolioMutation['kind']): PortfolioForm | null =>
+  kind === 'create-portfolio' || kind === 'update-portfolio'
+    ? 'portfolio'
+    : kind === 'add-holding' || kind === 'update-holding'
+      ? 'holding'
+      : kind === 'add-record' || kind === 'update-record'
+        ? 'record'
+        : null;
 @Component({
   imports: [
     PropertyPicker,
@@ -83,6 +93,17 @@ export class Portfolio implements OnInit {
     'MORTGAGE_PAYMENT',
     'OTHER_EXPENSE',
   ];
+  /** The latest date the backend takes for cash, an acquisition or a loan balance (none in the future). */
+  readonly today = () => todayIso();
+  /** A date after today, which the backend refuses for those three; said under the field. */
+  future(date: string) {
+    return !!date && date > todayIso();
+  }
+  /**
+   * The form whose save the server refused: its error is said under that form's button (and in the
+   * toast). A failed removal, from a row's button, is said in the toast only.
+   */
+  failedForm: PortfolioForm | null = null;
   private submitted: PortfolioMutation | null = null;
   private lastPortfolio: number | null = null;
   private lastHolding: number | null = null;
@@ -92,6 +113,7 @@ export class Portfolio implements OnInit {
       if (this.submitted && !s.saving) {
         const kind = this.submitted.kind;
         this.submitted = null;
+        this.failedForm = s.errors.save ? formOf(kind) : null;
         if (!s.errors.save) {
           if (kind === 'create-portfolio' || kind === 'update-portfolio') this.newPortfolio();
           if (kind === 'add-holding' || kind === 'update-holding') this.newHolding();
@@ -101,6 +123,7 @@ export class Portfolio implements OnInit {
 
       if (s.selectedId !== this.lastPortfolio) {
         this.lastPortfolio = s.selectedId;
+        this.failedForm = null;
         this.holding = emptyHolding();
         this.editingHolding = null;
         this.editingPortfolio = null;
@@ -111,6 +134,10 @@ export class Portfolio implements OnInit {
       }
       if (s.selectedHoldingId !== this.lastHolding) {
         this.lastHolding = s.selectedHoldingId;
+        if (this.failedForm === 'record') this.failedForm = null;
+        // Another holding's list opens unfiltered: its dates go with it.
+        this.recordFrom = '';
+        this.recordTo = '';
         this.resetRecord();
       }
     });
@@ -139,18 +166,18 @@ export class Portfolio implements OnInit {
     if (this.w.portfolio().saving) return;
     this.w.store.dispatch(A.selectHolding({ holdingId }));
   }
+  /** Filter: the dates typed, from the first page. */
+  filterRecords() {
+    this.loadRecords(0, { fromDate: this.recordFrom || undefined, toDate: this.recordTo || undefined });
+  }
+  /** Paging and Retry: the dates the list was filtered with, not ones typed since without Filter. */
   recordPage(page: number) {
+    this.loadRecords(page, this.w.portfolio().recordsQuery);
+  }
+  private loadRecords(page: number, dates: { fromDate?: string; toDate?: string }) {
     const s = this.w.portfolio();
     if (s.selectedId !== null && s.selectedHoldingId !== null)
-      this.w.store.dispatch(
-        A.loadRecords({
-          id: s.selectedId,
-          holdingId: s.selectedHoldingId,
-          page,
-          fromDate: this.recordFrom || undefined,
-          toDate: this.recordTo || undefined,
-        }),
-      );
+      this.w.store.dispatch(A.loadRecords({ id: s.selectedId, holdingId: s.selectedHoldingId, page, ...dates }));
   }
   summary() {
     const id = this.w.portfolio().selectedId;
@@ -196,6 +223,9 @@ export class Portfolio implements OnInit {
       h.ownershipSharePercent > 100
     )
       return;
+    // Said under the field as it is typed (the backend refuses a future date).
+    if (this.future(h.acquisitionDate)) return;
+    if (h.financingType === 'FINANCED' && this.future(h.balanceAsOfDate)) return;
     const body: HoldingRequest = {
       ...(this.editingHolding === null ? { propertyId: h.propertyId } : {}),
       acquisitionDate: h.acquisitionDate || null,
@@ -282,11 +312,12 @@ export class Portfolio implements OnInit {
       !this.transactionDate
     )
       return;
+    if (this.future(this.transactionDate)) return;
     if (
       !!this.periodStart !== !!this.periodEnd ||
       (this.periodStart && this.periodEnd && this.periodStart > this.periodEnd)
     ) {
-      this.w.toast('Provide both coverage dates in chronological order, or leave both blank.');
+      this.w.toast('Provide both coverage dates in chronological order, or leave both blank.', 'error');
       return;
     }
     const body = {
@@ -375,6 +406,7 @@ export class Portfolio implements OnInit {
   private mutate(mutation: PortfolioMutation) {
     if (this.w.portfolio().saving || !this.w.requireAccount('manage portfolios')) return;
     this.submitted = mutation;
+    this.failedForm = null;
     this.w.store.dispatch(A.mutate({ mutation }));
   }
   metric(m: PortfolioMetric | null | undefined) {

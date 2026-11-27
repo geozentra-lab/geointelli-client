@@ -36,24 +36,4 @@ export class DashboardEffects extends SessionScopedEffects {
       ),
     ),
   );
-  affordability = createEffect(() =>
-    this.actions.pipe(
-      ofType(A.loadAffordability),
-      switchMap(({ inputs }) =>
-        card('affordability', this.service.affordability(inputs), (c) =>
-          A.affordabilityLoaded({ card: c }),
-        ),
-      ),
-    ),
-  );
-  mortgageContext = createEffect(() =>
-    this.actions.pipe(
-      ofType(A.loadMortgageContext),
-      switchMap(({ inputs }) =>
-        card('mortgageContext', this.service.mortgageContext(inputs), (c) =>
-          A.mortgageContextLoaded({ card: c }),
-        ),
-      ),
-    ),
-  );
 }

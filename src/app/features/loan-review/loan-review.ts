@@ -700,6 +700,31 @@ export class LoanReview {
     effect(() => {
       if (this.w.auth.isLoggedIn()) untracked(() => this.reload());
     });
+    // ?org= (the organization chosen on the lending overview): Loan review opens on it, when the
+    // account still belongs to it. Taken out of the address once applied, like ?stage=.
+    effect(() => {
+      const org = Number(this.query().get('org'));
+      if (!Number.isSafeInteger(org) || org <= 0) return;
+      untracked(() => {
+        const l = this.lender();
+        if (l.selectedId !== org) {
+          if (!l.organizationsLoaded) this.w.store.dispatch(A.preferOrganization({ organizationId: org }));
+          else if (l.organizations.some((o) => o.id === org)) this.chooseOrganization(org);
+        }
+        void this.router.navigate([], { queryParams: { org: null }, queryParamsHandling: 'merge', replaceUrl: true });
+      });
+    });
+    // ?stage= (a stage on the lending overview): Applications opens filtered on it. The filter
+    // lives in the store, so the parameter is taken out of the address once applied.
+    effect(() => {
+      const stage = this.query().get('stage');
+      if (!stage) return;
+      untracked(() => {
+        if (LENDER_STAGES.includes(stage as LenderApplicationStage) && this.lender().stage !== stage)
+          this.loadApplications(0, stage as LenderApplicationStage);
+        void this.router.navigate([], { queryParams: { stage: null }, queryParamsHandling: 'merge', replaceUrl: true });
+      });
+    });
     // Another tab: a record's pane closes, and New application unless the tab is Applications.
     effect(() => {
       const tab = this.tab();

@@ -62,16 +62,16 @@ export const adminReducer = createReducer<AdminState>(
     return {
       ...s,
       acting,
-      // A cancel answers with the same request; a retry answers with a new one, listed first.
-      refreshes: page
-        ? done({
-            ...page,
-            content:
-              request.requestId === id
-                ? page.content.map((r) => (r.requestId === id ? request : r))
-                : [request, ...page.content],
-          })
-        : s.refreshes,
+      // A cancel answers with the same request, changed in place. A retry answers with a new one,
+      // listed first (newest first) when it belongs on the page shown: the first page, under no
+      // status filter or its own. Under "Failed" it is not slipped in; the failed one stays.
+      refreshes: !page
+        ? s.refreshes
+        : request.requestId === id
+          ? done({ ...page, content: page.content.map((r) => (r.requestId === id ? request : r)) })
+          : s.refreshPage === 0 && (s.refreshStatus === null || s.refreshStatus === request.status)
+            ? done({ ...page, content: [request, ...page.content], totalElements: page.totalElements + 1 })
+            : s.refreshes,
     };
   }),
   on(A.refreshActionFailed, (s, { id, error }) => {

@@ -1,10 +1,11 @@
-import { createActionGroup, props } from '@ngrx/store';
+import { createActionGroup, emptyProps, props } from '@ngrx/store';
 import { Page, UserDTO } from '../../core/models/api';
 import {
   ProfessionalRole,
   RealtorLicenseReviewDTO,
   RoleGrantEventDTO,
   RoleRequestReviewDTO,
+  UserSuggestionDTO,
 } from '../../core/models/account';
 import { LicenseQuery, RoleRequestQuery } from '../../data-access/admin-access.service';
 
@@ -36,6 +37,14 @@ export const AdminAccessActions = createActionGroup({
     'Find user': props<{ email: string }>(),
     'User found': props<{ email: string; user: UserDTO }>(),
     'Find user failed': props<{ email: string; error: string }>(),
+    /**
+     * Suggestions for the email or name an admin is typing: sent after a pause in typing (at once
+     * with `immediate`), from 2 characters; the newest text wins. Closed when the list goes away.
+     */
+    'Search users': props<{ query: string; immediate?: boolean }>(),
+    'Users suggested': props<{ query: string; users: UserSuggestionDTO[] }>(),
+    'Search users failed': props<{ query: string; error: string }>(),
+    'Search users closed': emptyProps(),
 
     'Load role grants': props<{ userId: number }>(),
     'Role grants loaded': props<{ userId: number; events: RoleGrantEventDTO[] }>(),

@@ -1,0 +1,158 @@
+<!doctype html>
+<!--
+  Explore with the docked map slot (design-audit, before DESIGN.md). Not app code.
+  Public shell, signed-in buyer. List rows, ZentraValues and parcel centres come from data.js,
+  generated from the mock fixtures by make-data.cjs. Tiles are OpenStreetMap's, as the app uses
+  today, drawn in greyscale so the data carries the colour. Leaflet 1.9.4 matches package.json.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Explore, docked map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="public.css" />
+<style>
+.frame{display:grid;grid-template-columns:minmax(0,1fr) clamp(420px,34vw,640px);align-items:start}
+.list{min-width:0;padding:22px 28px 40px 32px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+h1{margin:0;font-size:var(--fs-24);font-weight:600;letter-spacing:-.015em;display:flex;align-items:baseline;gap:10px}
+h1 .count{font-size:var(--fs-16);font-weight:400;color:var(--ink-2);letter-spacing:0}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 14px}
+.field{display:flex;align-items:center;justify-content:space-between;gap:10px;height:34px;padding:0 10px;border:1px solid var(--control);border-radius:4px;background:#fff;font-size:var(--fs-13);color:var(--ink);min-width:120px}
+.field.ph{color:var(--placeholder)}
+.field.wide{min-width:220px}
+.field svg{width:16px;height:16px;color:var(--ink-2)}
+.tablewrap{border:1px solid var(--rule)}
+thead th{top:60px}
+td,thead th{padding-left:8px;padding-right:8px}
+td{max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.addr{font-weight:500}
+.conf-low{color:var(--attention)}
+.pager{display:flex;align-items:center;justify-content:space-between;padding:10px 0;font-size:var(--fs-13);color:var(--ink-2)}
+.foot{margin:2px 0 0;font-size:var(--fs-12);color:var(--ink-2);max-width:80ch}
+/* the docked slot: flush to the right edge, full height under the bar, no card around it */
+.slot{position:sticky;top:60px;height:calc(100vh - 60px);border-left:1px solid var(--rule-strong);background:#e9ecee}
+#map{position:absolute;inset:0;background:#e9ecee}
+.leaflet-tile-pane{filter:grayscale(1) contrast(.9) brightness(1.05)}
+.leaflet-container{font-family:'DM Sans',system-ui,sans-serif}
+.leaflet-bar a,.leaflet-bar a:hover{width:32px;height:32px;line-height:30px;color:var(--ink);border-color:var(--rule)}
+.leaflet-bar{border:1px solid var(--control)!important;border-radius:4px!important;box-shadow:none!important}
+.leaflet-control-attribution{font-size:11px}
+.leaflet-tooltip.zv-tip{padding:6px 9px;border:1px solid var(--ink);border-radius:0;box-shadow:none;color:var(--ink);font-size:var(--fs-12);line-height:1.35}
+.leaflet-tooltip.zv-tip b{display:block;font-size:var(--fs-13);font-weight:600}
+.leaflet-tooltip.zv-tip::before{border-top-color:var(--ink)}
+.mapbar{position:absolute;z-index:500;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+.seg{display:inline-flex;border:1px solid var(--control);border-radius:4px;background:#fff;pointer-events:auto;overflow:hidden}
+.seg button{all:unset;padding:6px 12px;font-size:var(--fs-13);color:var(--ink-2);cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--ink);color:#fff}
+.legend{position:absolute;z-index:500;left:12px;bottom:26px;max-width:calc(100% - 24px);background:#fff;border:1px solid var(--rule-strong);padding:10px 12px;font-size:var(--fs-12);color:var(--ink-2)}
+.legend .keys{display:flex;flex-wrap:wrap;gap:6px 16px;margin-bottom:6px}
+.legend span{display:inline-flex;align-items:center;gap:6px;color:var(--ink)}
+.legend p{margin:0}
+.leaflet-control-zoom{margin-top:56px!important}
+</style>
+</head>
+<body>
+<header class="pbar">
+  <a class="brand" href="#"><span class="tile" aria-hidden="true">⌁</span>GeoZentra</a>
+  <div class="psearch" role="search"><svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg><span>Search address or folio</span></div>
+  <nav aria-label="Main"><a href="#" aria-current="page">Explore</a><a href="#">Opportunities</a><a href="#">Compare</a><a href="#">Saved</a><a href="#">Alerts</a></nav>
+  <span class="spacer"></span>
+  <div class="account"><button class="iconbtn" aria-label="Notifications"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg></button><span class="avatar" aria-label="Account">AU</span></div>
+</header>
+
+<div class="frame">
+  <section class="list" aria-label="Properties">
+    <div class="head"><h1>Explore <span class="count" data-f="count"></span></h1><button class="btn">Save search</button></div>
+    <div class="filters">
+      <span class="field">Miami-Dade, FL<svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></span>
+      <span class="field ph wide">Search address<svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg></span>
+      <span class="field ph">City</span>
+      <span class="field">Any beds<svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></span>
+    </div>
+    <div class="tablewrap"><table data-f="table"></table></div>
+    <div class="pager"><span data-f="pager"></span><button class="btn">Next page</button></div>
+    <p class="foot" data-f="foot"></p>
+  </section>
+  <aside class="slot" aria-label="Map of these properties">
+    <div id="map"></div>
+    <div class="mapbar"><span class="seg" role="group" aria-label="Map layer"><button aria-pressed="true">Properties</button><button aria-pressed="false">Growth since last sale</button></span></div>
+    <div class="legend">
+      <div class="keys">
+        <span><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="#172735" stroke="#fff" stroke-width="2"/></svg>ZentraValue on record</span>
+        <span><svg width="14" height="14" aria-hidden="true"><defs><pattern id="lh" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="4" stroke="#172735" stroke-width="1.2"/></pattern></defs><circle cx="7" cy="7" r="5.5" fill="url(#lh)" stroke="#172735" stroke-width="1.5"/></svg>No ZentraValue</span>
+        <span><svg width="18" height="18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="#8a5636" stroke="#fff" stroke-width="2"/></svg>Selected</span>
+      </div>
+      <p data-f="offmap"></p>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="data.js"></script>
+<script>
+const F = window.FIX;
+const rows = F.search.content;
+const SELECTED = 42;
+const usd = (n) => '$' + Math.round(n).toLocaleString('en-US');
+const folio = (f) => `${f.slice(0, 2)}-${f.slice(2, 6)}-${f.slice(6, 9)}-${f.slice(9)}`;
+const num = (n, unit = '') => n == null ? null : Number(n).toLocaleString('en-US') + unit;
+const cell = (v, cls = 'r') => v == null ? `<td class="${cls} na"><span class="na-word">Unavailable</span></td>` : `<td class="${cls}">${v}</td>`;
+const label = (r) => r.address || `Folio ${folio(r.folio)}`;
+document.querySelector('[data-f=count]').textContent = `${F.search.totalElements} properties`;
+document.querySelector('[data-f=pager]').textContent = `1 to ${rows.length} of ${F.search.totalElements}`;
+
+const head = `<thead><tr><th>Property</th><th class="r" ><button>Beds</button></th><th class="r">Baths</th>
+  <th class="r"><button>Living, sq ft</button></th><th class="r">Lot, sq ft</th><th class="r"><button>Built</button></th><th class="r">ZentraValue</th></tr></thead>`;
+const body = rows.map((r) => {
+  const p = F.predictions[r.id];
+  const where = [r.city, r.propertyType].filter(Boolean).join(', ');
+  const zv = p ? `<td class="r">${usd(p.predictedPrice)}<span class="sub ${p.confidence === 'low' ? 'conf-low' : ''}">${p.confidence ? p.confidence[0].toUpperCase() + p.confidence.slice(1) + ' confidence' : 'Confidence unavailable'}</span></td>`
+               : `<td class="r na"><span class="na-word">Unavailable</span></td>`;
+  return `<tr${r.id === SELECTED ? ' class="sel" aria-selected="true"' : ''}>
+    <td><span class="addr">${label(r)}</span><span class="sub">${r.address ? where : 'No street address on record. ' + where}</span></td>
+    ${cell(r.bedrooms)}${cell(r.bathrooms)}${cell(num(r.livingAreaSqft))}${cell(num(r.lotSize))}${cell(r.yearBuilt)}${zv}</tr>`;
+}).join('');
+document.querySelector('[data-f=table]').innerHTML = head + '<tbody>' + body + '</tbody>';
+
+const offmap = rows.filter((r) => !F.centres[r.folio]);
+const noValue = rows.filter((r) => !F.predictions[r.id]);
+document.querySelector('[data-f=offmap]').textContent = offmap.length
+  ? `Not on the map: ${offmap.map(label).join(', ')}. No parcel boundary is on record.` : '';
+document.querySelector('[data-f=foot]').textContent =
+  `${noValue.length} of ${rows.length} properties on this page have no ZentraValue; their reasons are on each property page. Lot size is not recorded for condominium units.`;
+
+// Map: parcel centres for this page's rows, greyscale tiles, ink markers, copper selection,
+// hatched markers where there is no ZentraValue.
+const map = L.map('map', { zoomControl: true, attributionControl: true, preferCanvas: false });
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+map.zoomControl.setPosition('topright');
+const pts = [];
+const svgDefs = () => {
+  const svg = map.getPanes().overlayPane.querySelector('svg');
+  if (svg && !svg.querySelector('#gz-hatch')) svg.insertAdjacentHTML('afterbegin', '<defs><pattern id="gz-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="#fff"/><line x1="0" y1="0" x2="0" y2="4" stroke="#172735" stroke-width="1.2"/></pattern></defs>');
+};
+let selected;
+for (const r of rows) {
+  const c = F.centres[r.folio];
+  if (!c) continue;
+  pts.push(c);
+  const p = F.predictions[r.id];
+  const sel = r.id === SELECTED;
+  const m = L.circleMarker(c, sel
+    ? { radius: 8, color: '#fff', weight: 2, fillColor: '#8a5636', fillOpacity: 1 }
+    : p ? { radius: 6, color: '#fff', weight: 2, fillColor: '#172735', fillOpacity: 1 }
+        : { radius: 6.5, color: '#172735', weight: 1.5, fillColor: 'url(#gz-hatch)', fillOpacity: 1 }).addTo(map);
+  if (sel) selected = { m, r, p };
+}
+map.fitBounds(pts, { padding: [70, 40] });
+svgDefs();
+selected.m.bringToFront();
+selected.m.bindTooltip(`<b>${label(selected.r)}</b>ZentraValue ${usd(selected.p.predictedPrice)}`, { permanent: true, direction: 'top', offset: [0, -10], className: 'zv-tip' }).openTooltip();
+</script>
+</body>
+</html>

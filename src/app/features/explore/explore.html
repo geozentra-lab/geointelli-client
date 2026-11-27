@@ -1,251 +1,260 @@
-<div class="ex" [class.show-map]="view() === 'map'">
-  <div class="ex-bar">
-    <div class="filters ex-filters" role="search" aria-label="Filter properties">
-      <gz-county-picker (changed)="filter($event)" />
-      <label class="field search">
-        <gz-icon name="search" />
-        <input
-          aria-label="Search address"
-          placeholder="Search address"
-          [ngModel]="w.catalog().query.address || ''"
-          (ngModelChange)="filter({ address: $event || undefined })"
-        />
-      </label>
-      <input
-        class="field ex-city"
-        aria-label="City"
-        placeholder="City"
-        [ngModel]="w.catalog().query.city || ''"
-        (ngModelChange)="filter({ city: $event || undefined })"
-      />
-      <select
-        class="field"
-        aria-label="Minimum bedrooms"
-        [ngModel]="w.catalog().query.minBedrooms ?? null"
-        (ngModelChange)="filter({ minBedrooms: $event ?? undefined })"
-      >
-        <option [ngValue]="null">Any beds</option>
-        @for (n of [1, 2, 3, 4, 5]; track n) {
-          <option [ngValue]="n">{{ n }}+ beds</option>
-        }
-      </select>
-      <select
-        class="field"
-        aria-label="Sort properties"
-        [ngModel]="sortValue()"
-        (ngModelChange)="setSort($event)"
-      >
-        @for (s of sorts; track s.value) {
-          <option [value]="s.value">{{ s.label }}</option>
-        }
-      </select>
-    </div>
-    <div class="toggle ex-view" role="group" aria-label="Show">
-      <button
-        type="button"
-        [class.active]="view() === 'list'"
-        [attr.aria-pressed]="view() === 'list'"
-        (click)="view.set('list')"
-      >
-        List</button
-      ><button
-        type="button"
-        [class.active]="view() === 'map'"
-        [attr.aria-pressed]="view() === 'map'"
-        (click)="view.set('map')"
-      >
-        Map
-      </button>
-    </div>
-  </div>
-
-  <div class="ex-split">
-    <aside class="ex-slot" aria-label="Map of these properties">
-      @defer (when mapWanted()) {
-        <gz-explore-map
-          [rows]="scoped() ? rows() : []"
-          [values]="values()"
-          [valuesStatus]="valuesStatus()"
-          [selected]="selected()"
-          [hovered]="hovered()"
-          [reveal]="reveal()"
-          [prompt]="mapPrompt()"
-          (picked)="pickFromMap($event)"
-        />
-      } @placeholder {
-        <div class="ex-slot-empty"></div>
-      }
-    </aside>
-
-    @if (view() === 'map' && selectedRow(); as r) {
-      <div class="ex-picked" #picked tabindex="-1" role="region" aria-label="Shown on the map">
-        <a class="ex-picked-title" [routerLink]="['/property', r.id]">{{ title(r) }}</a>
-        @if (values()[r.id]; as p) {
-          <span>ZentraValue {{ money(p.predictedPrice) }}</span>
-        } @else if (valuesStatus() === 'loading') {
-          <span>Loading ZentraValue…</span>
-        } @else if (valuesStatus() === 'error') {
-          <span>ZentraValues could not load.</span>
-        } @else {
-          <span>ZentraValue <span class="na"><span class="na-word">Unavailable</span></span>: no estimate was returned.</span>
-        }
-      </div>
-    }
-
-    <section class="ex-list" #results tabindex="-1" aria-labelledby="explore-title">
-      <div class="ex-head">
-        <h1 id="explore-title">
-          Explore
-          @if (scoped() && countText()) {
-            <span class="ex-count" aria-live="polite">{{ countText() }}</span>
-          }
-        </h1>
-        <div class="ex-actions">
-          <a class="btn small" routerLink="/explore/live">Parcel search</a>
-          @if (scoped()) {
-            <button
-              type="button"
-              class="btn small"
-              [attr.aria-expanded]="saveOpen()"
-              aria-controls="save-search"
-              (click)="saveOpen() ? closeSave() : openSave()"
-            >
-              Save search
-            </button>
-          }
-        </div>
-      </div>
-
-      @if (saveOpen() && scoped()) {
-        <form id="save-search" class="ex-save" (ngSubmit)="save()">
-          <label for="save-search-name">Name</label>
+@if (!signedIn) {
+  <gz-sign-in-prompt
+    class="ex-guest"
+    [page]="true"
+    heading="Sign in to explore properties"
+    text="Property records, ZentraValue estimates and the map need an account."
+  />
+} @else {
+  <div class="ex" [class.show-map]="view() === 'map'">
+    <div class="ex-bar">
+      <div class="filters ex-filters" role="search" aria-label="Filter properties">
+        <gz-county-picker (changed)="filter($event)" />
+        <label class="field search">
+          <gz-icon name="search" />
           <input
-            #nameInput
-            id="save-search-name"
-            class="field"
-            name="searchName"
-            placeholder="Name this search"
-            maxlength="120"
-            [(ngModel)]="saveName"
-            [disabled]="w.searchState().saving > 0"
-            [attr.aria-invalid]="saveError() ? true : null"
-            [attr.aria-describedby]="saveError() ? 'save-search-error' : 'save-search-help'"
+            aria-label="Search address"
+            placeholder="Search address"
+            [ngModel]="w.catalog().query.address || ''"
+            (ngModelChange)="filter({ address: $event || undefined })"
           />
-          <button class="btn primary" [disabled]="w.searchState().saving > 0">
-            {{ w.searchState().saving ? 'Saving…' : 'Save' }}
-          </button>
-          <button type="button" class="btn ghost" (click)="closeSave()">Cancel</button>
-          @if (saveError()) {
-            <p id="save-search-error" class="ex-save-note field-error" role="alert">
-              {{ saveError() }}
-            </p>
-          } @else {
-            <p id="save-search-help" class="ex-save-note">
-              Saves the state and filters above. Saved searches are listed under Saved.
-            </p>
+        </label>
+        <input
+          class="field ex-city"
+          aria-label="City"
+          placeholder="City"
+          [ngModel]="w.catalog().query.city || ''"
+          (ngModelChange)="filter({ city: $event || undefined })"
+        />
+        <select
+          class="field"
+          aria-label="Minimum bedrooms"
+          [ngModel]="w.catalog().query.minBedrooms ?? null"
+          (ngModelChange)="filter({ minBedrooms: $event ?? undefined })"
+        >
+          <option [ngValue]="null">Any beds</option>
+          @for (n of [1, 2, 3, 4, 5]; track n) {
+            <option [ngValue]="n">{{ n }}+ beds</option>
           }
-        </form>
-      }
+        </select>
+        <select
+          class="field"
+          aria-label="Sort properties"
+          [ngModel]="sortValue()"
+          (ngModelChange)="setSort($event)"
+        >
+          @for (s of sorts; track s.value) {
+            <option [value]="s.value">{{ s.label }}</option>
+          }
+        </select>
+      </div>
+      <div class="toggle ex-view" role="group" aria-label="Show">
+        <button
+          type="button"
+          [class.active]="view() === 'list'"
+          [attr.aria-pressed]="view() === 'list'"
+          (click)="view.set('list')"
+        >
+          List</button
+        ><button
+          type="button"
+          [class.active]="view() === 'map'"
+          [attr.aria-pressed]="view() === 'map'"
+          (click)="view.set('map')"
+        >
+          Map
+        </button>
+      </div>
+    </div>
 
-      <gz-request-status [error]="w.favoriteState().error" (retry)="w.retryFavorite()" />
-      <gz-request-status
-        [error]="w.searchState().error"
-        [retryLabel]="w.searchState().errorOperation === 'load' ? 'Refresh searches' : 'Try saving again'"
-        (retry)="retrySavedSearch()"
-      />
+    <div class="ex-split">
+      <aside class="ex-slot" aria-label="Map of these properties">
+        @defer (when mapWanted()) {
+          <gz-explore-map
+            [rows]="scoped() ? rows() : []"
+            [values]="values()"
+            [valuesStatus]="valuesStatus()"
+            [selected]="selected()"
+            [hovered]="hovered()"
+            [reveal]="reveal()"
+            [prompt]="mapPrompt()"
+            (picked)="pickFromMap($event)"
+          />
+        } @placeholder {
+          <div class="ex-slot-empty"></div>
+        }
+      </aside>
 
-      @if (!scoped()) {
-        <div class="ex-start">
-          <p>Choose a state to see its properties on the map.</p>
-          @if (locations().error) {
-            <div class="insight danger" role="alert">
-              {{ locations().error }}
-              <button type="button" class="btn small" (click)="retryStates()">Retry</button>
-            </div>
-          } @else if (locations().loading) {
-            <p class="ex-status" role="status">Loading states…</p>
-          } @else if (!locations().states.length) {
-            <p class="ex-status" role="status">No states are available yet.</p>
-            <button type="button" class="btn small" (click)="retryStates()">Check again</button>
+      @if (view() === 'map' && selectedRow(); as r) {
+        <div class="ex-picked" #picked tabindex="-1" role="region" aria-label="Shown on the map">
+          <a class="ex-picked-title" [routerLink]="['/property', r.id]">{{ title(r) }}</a>
+          @if (values()[r.id]; as p) {
+            <span>ZentraValue {{ money(p.predictedPrice) }}</span>
+          } @else if (valuesStatus() === 'loading') {
+            <span>Loading ZentraValue…</span>
+          } @else if (valuesStatus() === 'error') {
+            <span>ZentraValues could not load.</span>
           } @else {
-            <ul class="ex-states" aria-label="States">
-              @for (s of locations().states; track s.id) {
-                <li>
-                  <button type="button" class="btn" (click)="chooseState(s)">{{ s.name }}</button>
-                </li>
-              }
-            </ul>
+            <span>ZentraValue <span class="na"><span class="na-word">Unavailable</span></span>: no estimate was returned.</span>
           }
         </div>
-      } @else {
-        <gz-request-status
-          class="ex-search-error"
-          [error]="w.catalog().error"
-          retryLabel="Retry search"
-          (retry)="retry()"
-        />
-        <div class="ex-results">
-          @if (w.catalog().error && rows().length) {
-            <p class="ex-status" role="status">
-              Showing your previous results. Retry the search to apply the latest filters.
-            </p>
-          } @else {
-            <p class="sr-only" role="status">{{ loading() ? 'Updating results' : countText() }}</p>
-          }
-          @if (valuesError()) {
-            <p class="ex-status" role="alert">
-              ZentraValues could not load.
-              <button type="button" class="btn small" (click)="retryValues()">Retry</button>
-            </p>
-          }
-          <div class="ex-cards" [class.ex-busy]="loading() && rows().length" [attr.aria-busy]="loading()">
-            @for (h of rows(); track h.id) {
-              <gz-explore-card
-                [attr.data-id]="h.id"
-                [home]="h"
-                [prediction]="values()[h.id]"
-                [valuesLoading]="valuesLoading()"
-                [valuesError]="valuesError()"
-                [selected]="selected() === h.id"
-                (picked)="pick(h.id)"
-                (mouseenter)="hovered.set(h.id)"
-                (mouseleave)="hovered.set(null)"
-              />
-            } @empty {
-              @if (loading()) {
-                @for (n of [1, 2, 3, 4]; track n) {
-                  <div class="ex-skel" aria-hidden="true"><span></span><i></i><i></i></div>
-                }
-              } @else if (!w.catalog().error) {
-                <div class="ex-empty" role="status">
-                  <p>No properties match these filters.</p>
-                  <button type="button" class="btn" (click)="clearFilters()">Clear filters</button>
-                </div>
-              }
+      }
+
+      <section class="ex-list" #results tabindex="-1" aria-labelledby="explore-title">
+        <div class="ex-head">
+          <h1 id="explore-title">
+            Explore
+            @if (scoped() && countText()) {
+              <span class="ex-count" aria-live="polite">{{ countText() }}</span>
+            }
+          </h1>
+          <div class="ex-actions">
+            <a class="btn small" routerLink="/explore/live">Parcel search</a>
+            @if (scoped()) {
+              <button
+                type="button"
+                class="btn small"
+                [attr.aria-expanded]="saveOpen()"
+                aria-controls="save-search"
+                (click)="saveOpen() ? closeSave() : openSave()"
+              >
+                Save search
+              </button>
             }
           </div>
-          @if (page(); as p) {
-            <gz-pager
-              [page]="p.page"
-              [size]="p.size"
-              [total]="p.totalElements"
-              [loading]="loading()"
-              (changed)="goTo($event)"
+        </div>
+
+        @if (saveOpen() && scoped()) {
+          <form id="save-search" class="ex-save" (ngSubmit)="save()">
+            <label for="save-search-name">Name</label>
+            <input
+              #nameInput
+              id="save-search-name"
+              class="field"
+              name="searchName"
+              placeholder="Name this search"
+              maxlength="120"
+              [(ngModel)]="saveName"
+              [disabled]="w.searchState().saving > 0"
+              [attr.aria-invalid]="saveError() ? true : null"
+              [attr.aria-describedby]="saveError() ? 'save-search-error' : 'save-search-help'"
             />
-          }
-          @if (rows().length) {
-            <div class="ex-notes">
-              <p>ZentraValue is GeoZentra's estimate of market value, not an asking price.</p>
-              @if (anyMissing()) {
-                <p>Unavailable: not in the property record.</p>
-              }
-              @if (sortValue() !== 'id|asc') {
-                <p>Sorted across all results; properties without a value come last.</p>
+            <button class="btn primary" [disabled]="w.searchState().saving > 0">
+              {{ w.searchState().saving ? 'Saving…' : 'Save' }}
+            </button>
+            <button type="button" class="btn ghost" (click)="closeSave()">Cancel</button>
+            @if (saveError()) {
+              <p id="save-search-error" class="ex-save-note field-error" role="alert">
+                {{ saveError() }}
+              </p>
+            } @else {
+              <p id="save-search-help" class="ex-save-note">
+                Saves the state and filters above. Saved searches are listed under Saved.
+              </p>
+            }
+          </form>
+        }
+
+        <gz-request-status [error]="w.favoriteState().error" (retry)="w.retryFavorite()" />
+        <gz-request-status
+          [error]="w.searchState().error"
+          [retryLabel]="w.searchState().errorOperation === 'load' ? 'Refresh searches' : 'Try saving again'"
+          (retry)="retrySavedSearch()"
+        />
+
+        @if (!scoped()) {
+          <div class="ex-start">
+            <p>Choose a state to see its properties on the map.</p>
+            @if (locations().error) {
+              <div class="insight danger" role="alert">
+                {{ locations().error }}
+                <button type="button" class="btn small" (click)="retryStates()">Retry</button>
+              </div>
+            } @else if (locations().loading) {
+              <p class="ex-status" role="status">Loading states…</p>
+            } @else if (!locations().states.length) {
+              <p class="ex-status" role="status">No states are available yet.</p>
+              <button type="button" class="btn small" (click)="retryStates()">Check again</button>
+            } @else {
+              <ul class="ex-states" aria-label="States">
+                @for (s of locations().states; track s.id) {
+                  <li>
+                    <button type="button" class="btn" (click)="chooseState(s)">{{ s.name }}</button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        } @else {
+          <gz-request-status
+            class="ex-search-error"
+            [error]="w.catalog().error"
+            retryLabel="Retry search"
+            (retry)="retry()"
+          />
+          <div class="ex-results">
+            @if (w.catalog().error && rows().length) {
+              <p class="ex-status" role="status">
+                Showing your previous results. Retry the search to apply the latest filters.
+              </p>
+            } @else {
+              <p class="sr-only" role="status">{{ loading() ? 'Updating results' : countText() }}</p>
+            }
+            @if (valuesError()) {
+              <p class="ex-status" role="alert">
+                ZentraValues could not load.
+                <button type="button" class="btn small" (click)="retryValues()">Retry</button>
+              </p>
+            }
+            <div class="ex-cards" [class.ex-busy]="loading() && rows().length" [attr.aria-busy]="loading()">
+              @for (h of rows(); track h.id) {
+                <gz-explore-card
+                  [attr.data-id]="h.id"
+                  [home]="h"
+                  [prediction]="values()[h.id]"
+                  [valuesLoading]="valuesLoading()"
+                  [valuesError]="valuesError()"
+                  [selected]="selected() === h.id"
+                  (picked)="pick(h.id)"
+                  (mouseenter)="hovered.set(h.id)"
+                  (mouseleave)="hovered.set(null)"
+                />
+              } @empty {
+                @if (loading()) {
+                  @for (n of [1, 2, 3, 4]; track n) {
+                    <div class="ex-skel" aria-hidden="true"><span></span><i></i><i></i></div>
+                  }
+                } @else if (!w.catalog().error) {
+                  <div class="ex-empty" role="status">
+                    <p>No properties match these filters.</p>
+                    <button type="button" class="btn" (click)="clearFilters()">Clear filters</button>
+                  </div>
+                }
               }
             </div>
-          }
-        </div>
-      }
-    </section>
+            @if (page(); as p) {
+              <gz-pager
+                [page]="p.page"
+                [size]="p.size"
+                [total]="p.totalElements"
+                [loading]="loading()"
+                (changed)="goTo($event)"
+              />
+            }
+            @if (rows().length) {
+              <div class="ex-notes">
+                <p>ZentraValue is GeoZentra's estimate of market value, not an asking price.</p>
+                @if (anyMissing()) {
+                  <p>Unavailable: not in the property record.</p>
+                }
+                @if (sortValue() !== 'id|asc') {
+                  <p>Sorted across all results; properties without a value come last.</p>
+                }
+              </div>
+            }
+          </div>
+        }
+      </section>
+    </div>
   </div>
-</div>
+}

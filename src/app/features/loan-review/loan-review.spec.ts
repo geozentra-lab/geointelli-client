@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -13,6 +13,8 @@ import { NO_ACCOUNT_FOR_EMAIL, memberLookupError } from '../../store/lender/lend
 import { UserActions } from '../../store/user/user.actions';
 import { LenderApplicationDTO, LenderPipelineDTO } from '../../core/models/lender';
 import { LoanReview } from './loan-review';
+import { isAmount } from './application-record';
+import { selectLender } from '../../store/lender/lender.selectors';
 
 const app = (id: number, over: Partial<LenderApplicationDTO> = {}): LenderApplicationDTO => ({
   id,
@@ -153,6 +155,54 @@ describe('Loan review', () => {
     );
   });
 
+  it('opens Applications filtered on ?stage= from the overview, then takes it out of the address', async () => {
+    const { settle } = await setup('/loan-review?tab=applications&stage=SUBMITTED');
+    hold();
+    await settle();
+    expect(of<ReturnType<typeof A.loadApplications>>(A.loadApplications.type)[0]).toEqual(
+      A.loadApplications({ page: 0, stage: 'SUBMITTED' }),
+    );
+    await new Promise((r) => setTimeout(r));
+    expect(TestBed.inject(Router).url).toBe('/loan-review?tab=applications');
+    // An unknown stage is ignored.
+    await TestBed.inject(Router).navigateByUrl('/loan-review?tab=applications&stage=LOST');
+    await settle();
+    expect(of(A.loadApplications.type)).toHaveLength(1);
+  });
+
+  it('opens on the organization chosen on the overview (?org=), then takes it out of the address', async () => {
+    const orgs = [
+      { id: 42, name: 'Biscayne Community Lending', ownerUserId: 7 },
+      { id: 43, name: 'Keys Credit Union', ownerUserId: 8 },
+    ];
+    const selected = () => {
+      let id: number | null = null;
+      store.select(selectLender).subscribe((s) => (id = s.selectedId)).unsubscribe();
+      return id;
+    };
+    // Before the organizations are read: preferred, and kept once they arrive (not the first one).
+    const { settle } = await setup('/loan-review?tab=applications&org=43');
+    await settle();
+    expect(of(A.preferOrganization.type)).toEqual([A.preferOrganization({ organizationId: 43 })]);
+    store.dispatch(A.organizationsLoaded({ organizations: orgs }));
+    expect(selected()).toBe(43);
+    await new Promise((r) => setTimeout(r));
+    expect(TestBed.inject(Router).url).toBe('/loan-review?tab=applications');
+    // Once they are read: chosen as from the picker. One the account doesn't belong to is ignored.
+    await TestBed.inject(Router).navigateByUrl('/loan-review?tab=applications&org=42');
+    await settle();
+    expect(of<ReturnType<typeof A.selectOrganization>>(A.selectOrganization.type).map((a) => a.organizationId)).toEqual([42]);
+    expect(selected()).toBe(42);
+    await TestBed.inject(Router).navigateByUrl('/loan-review?tab=applications&org=99');
+    await settle();
+    expect(selected()).toBe(42);
+  });
+
+  it('takes any amount in whole cents (an exact check refused 1.10, 19.99 and 300000.10)', () => {
+    for (const v of [0.01, 1.1, 4.35, 19.99, 12.5, 250000, 300000.1, 999999999.99]) expect(isAmount(v)).toBe(true);
+    for (const v of [0, -5, 1.105, 0.001, NaN, Infinity, null, undefined]) expect(isAmount(v)).toBe(false);
+  });
+
   it('asks before a final stage, and shows the import source as a field', async () => {
     const { el, settle } = await setup();
     hold(app(16, { source: 'BROKER_SOUTHDADE', externalId: 'SD-2238' }));
@@ -226,7 +276,7 @@ describe('Loan review', () => {
     expect(memberLookupError(new HttpErrorResponse({ status: 404 }))).toBe(NO_ACCOUNT_FOR_EMAIL);
     expect(
       memberLookupError(new HttpErrorResponse({ status: 400, error: { message: 'email must be an email address' } })),
-    ).toBe('email must be an email address');
+    ).toBe('Email must be an email address.');
   });
 
   it('says a snapshot that is not JSON, and lists a result row by row in words', async () => {

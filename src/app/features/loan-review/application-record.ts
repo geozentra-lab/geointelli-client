@@ -21,9 +21,13 @@ const usd = (v: number | null | undefined, cents = true) =>
   v === null || v === undefined
     ? null
     : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: cents ? 2 : 0, minimumFractionDigits: 0 }).format(v);
-/** Two decimals at most, as the backend stores USD amounts. */
+/**
+ * Two decimals at most, as the backend stores USD amounts. Compared within a tolerance: in binary
+ * floating point 19.99 * 100 is 1998.9999999999998, so an exact check refused about one valid
+ * cent amount in ten (1.10, 4.35, 300000.10).
+ */
 export const isAmount = (v: number | null | undefined): v is number =>
-  typeof v === 'number' && Number.isFinite(v) && v > 0 && Math.round(v * 100) === v * 100;
+  typeof v === 'number' && Number.isFinite(v) && v > 0 && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6;
 
 /**
  * A loan application in the record pane (DESIGN.md §5 Register, the lender pane): the amounts and

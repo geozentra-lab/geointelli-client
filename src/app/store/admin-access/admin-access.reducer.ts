@@ -5,6 +5,7 @@ import {
   RealtorLicenseReviewDTO,
   RoleGrantEventDTO,
   RoleRequestReviewDTO,
+  UserSuggestionDTO,
 } from '../../core/models/account';
 import { LicenseQuery, RoleRequestQuery } from '../../data-access/admin-access.service';
 import { Remote, done, failed, idle, pending } from '../remote';
@@ -26,6 +27,8 @@ export interface AdminAccessState {
   /** The email an admin last looked up, and the account found for it. */
   userLookupEmail: string | null;
   userLookup: Remote<UserDTO>;
+  /** Suggestions for the text being typed in the user search. */
+  userSearch: UserSearch;
   /** The user whose role history is held. */
   grantsUserId: number | null;
   grants: Remote<RoleGrantEventDTO[]>;
@@ -36,6 +39,24 @@ export interface AdminAccessState {
 
 /** A revoke is one user's one role. */
 export const revokeKey = (userId: number, role: ProfessionalRole) => `${userId}:${role}`;
+
+/**
+ * The user search's suggestions. `query` is the text they answer, as {@link userQuery} gives it;
+ * the previous suggestions stay listed while newer ones load.
+ */
+export interface UserSearch {
+  query: string;
+  users: UserSuggestionDTO[];
+  loading: boolean;
+  error: string | null;
+}
+export const IDLE_USER_SEARCH: UserSearch = { query: '', users: [], loading: false, error: null };
+/** Fewest and most characters the backend searches (a single letter would list most accounts). */
+export const MIN_USER_QUERY = 2;
+export const MAX_USER_QUERY = 254;
+/** Typed text as the backend searches it: trimmed, and runs of spaces count as one. */
+export const userQuery = (text: string) => text.trim().replace(/\s+/g, ' ');
+const searchable = (q: string) => q.length >= MIN_USER_QUERY && q.length <= MAX_USER_QUERY;
 
 export const initialAdminAccessState: AdminAccessState = {
   requestQuery: { status: 'PENDING', role: null, page: 0 },
@@ -48,6 +69,7 @@ export const initialAdminAccessState: AdminAccessState = {
   licenseErrors: {},
   userLookupEmail: null,
   userLookup: idle(),
+  userSearch: IDLE_USER_SEARCH,
   grantsUserId: null,
   grants: idle(),
   revoking: {},
@@ -186,6 +208,20 @@ export const adminAccessReducer = createReducer<AdminAccessState>(
   on(A.findUserFailed, (s, { email, error }) =>
     email === s.userLookupEmail ? { ...s, userLookup: failed(s.userLookup, error) } : s,
   ),
+
+  // Suggestions answer only the text they were asked for; text too short to search clears them.
+  on(A.searchUsers, (s, { query }) => {
+    const q = userQuery(query);
+    if (!searchable(q)) return { ...s, userSearch: IDLE_USER_SEARCH };
+    return { ...s, userSearch: { ...s.userSearch, query: q, loading: true, error: null } };
+  }),
+  on(A.usersSuggested, (s, { query, users }) =>
+    query === s.userSearch.query ? { ...s, userSearch: { query, users, loading: false, error: null } } : s,
+  ),
+  on(A.searchUsersFailed, (s, { query, error }) =>
+    query === s.userSearch.query ? { ...s, userSearch: { ...s.userSearch, loading: false, error } } : s,
+  ),
+  on(A.searchUsersClosed, (s) => ({ ...s, userSearch: IDLE_USER_SEARCH })),
 
   on(A.loadRoleGrants, (s, { userId }) => ({
     ...s,

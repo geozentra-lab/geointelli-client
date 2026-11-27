@@ -33,10 +33,12 @@ export const CrmActions = createActionGroup({
     }>(),
     'Overview failed': props<{ error: string }>(),
     'Load options': emptyProps(),
+    /** `failed`: lists that could not be read (sent empty; the ones already held are kept). */
     'Options loaded': props<{
       clients: CrmClientDTO[];
       leads: CrmLeadDTO[];
       deals: CrmTransactionDTO[];
+      failed?: ('clients' | 'leads' | 'deals')[];
     }>(),
     'Load clients': props<{ page: number }>(),
     'Clients loaded': props<{ page: Page<CrmClientDTO> }>(),

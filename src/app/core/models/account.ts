@@ -118,6 +118,17 @@ export const GRANT_SOURCE_LABELS: Record<RoleGrantSource, string> = {
   ADMIN_REVOCATION: 'Revoked by an admin',
   LICENSE_EXPIRY: 'License expired',
 };
+/**
+ * GET /api/admin/users/search: an account suggested while an admin types. `id` opens its role
+ * history; an account without an email or a name has null there.
+ */
+export interface UserSuggestionDTO {
+  id: number;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+}
+
 /** GET /api/admin/users/{userId}/role-grants, newest first. */
 export interface RoleGrantEventDTO {
   id: number;

@@ -1,23 +1,20 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
-import {
-  AffordabilityCardDTO,
-  AffordabilityRequest,
-  AlertsCard,
-  FavoritesCard,
-  MortgageContextCardDTO,
-  MortgageRequest,
-  SavedSearchesCard,
-} from '../core/models/api';
+import { AlertsCard, FavoritesCard, SavedSearchesCard } from '../core/models/api';
 import {
   ActivityCardDTO,
-  InvestorOccupancyExposureCardDTO,
-  InvestorValueEquityDebtCardDTO,
+  InvestorDashboardDTO,
   RealtorClientsLeadsCardDTO,
   RealtorTasksPipelineCardDTO,
 } from '../core/models/dashboard';
 import { queryParams } from './http-params';
+
+/**
+ * The overview cards. The affordability and mortgage-context cards are not read: they only run the
+ * Studio's calculators on inputs the caller sends (no stored data, no live rate feed), so the
+ * Studio stays the one place for them (DESIGN.md §8).
+ */
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
   private http = inject(HttpClient);
@@ -47,29 +44,14 @@ export class DashboardService {
       { params: { limit, days } },
     );
   }
-  /** Without a portfolio the investor cards cover every portfolio of the user. */
-  investorOccupancyExposure(portfolioId: number | null) {
-    return this.http.get<InvestorOccupancyExposureCardDTO>(
-      environment.apiUrl + '/dashboards/investor/occupancy-exposure',
-      { params: queryParams({ portfolioId }) },
-    );
-  }
-  investorValueEquityDebt(portfolioId: number | null) {
-    return this.http.get<InvestorValueEquityDebtCardDTO>(
-      environment.apiUrl + '/dashboards/investor/value-equity-debt',
-      { params: queryParams({ portfolioId }) },
-    );
-  }
-  /** Inputs go as query parameters and are not stored; omitted ones are listed as missing. */
-  affordability(inputs: Partial<AffordabilityRequest> = {}) {
-    return this.http.get<AffordabilityCardDTO>(this.base + '/affordability', {
-      params: queryParams(inputs),
+  /**
+   * The four investor cards (value, income and returns, occupancy, opportunities) in one response;
+   * without a portfolio they cover every portfolio of the user, the income card over the last 12
+   * complete months.
+   */
+  investorDashboard(portfolioId: number | null) {
+    return this.http.get<InvestorDashboardDTO>(environment.apiUrl + '/dashboards/investor', {
+      params: queryParams({ portfolioId }),
     });
-  }
-  mortgageContext(inputs: Partial<MortgageRequest> = {}) {
-    return this.http.get<MortgageContextCardDTO>(
-      environment.apiUrl + '/dashboards/lender/mortgage-context',
-      { params: queryParams(inputs) },
-    );
   }
 }

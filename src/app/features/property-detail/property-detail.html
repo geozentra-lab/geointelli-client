@@ -3,6 +3,12 @@
     <p>This property link is invalid.</p>
     <a class="btn" routerLink="/explore">Find a property</a>
   </div>
+} @else if (!signedIn) {
+  <gz-sign-in-prompt
+    [page]="true"
+    heading="Sign in to see this property"
+    text="Property records, ZentraValue estimates, sales and comparables need an account."
+  />
 } @else {
   <div class="pr-page" [attr.inert]="askOpen() ? '' : null">
     <gz-request-status

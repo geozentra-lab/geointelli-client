@@ -1,0 +1,84 @@
+/* Shared by the public-shell specimens (property.html, explore.html). Direction A tokens, DM Sans only. */
+:root{
+  --ink:#172735; --ink-2:#4e6170; --paper:#f5f6f7; --surface:#fff;
+  --rule:#e2e7ea; --rule-strong:#c5ced4; --control:#7d8c97; --placeholder:#5e6e7b;
+  --copper:#8a5636; --copper-hover:#74462b; --copper-tint:#f4ece6; --copper-band:#e6d3c5;
+  --attention:#8c4f17; --positive:#23695b; --negative:#a63e32;
+  --navy:#172735; --copper-mark:#d39a73;
+  --hatch:repeating-linear-gradient(135deg,#d9e0e5 0 1px,transparent 1px 6px);
+  --fs-12:12px; --fs-13:13px; --fs-14:14px; --fs-16:16px; --fs-20:20px; --fs-24:24px; --fs-32:32px; --fs-40:40px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font:400 var(--fs-14)/1.45 'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--copper)}
+svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+table,.tnum{font-variant-numeric:tabular-nums lining-nums}
+.muted{color:var(--ink-2)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:4px;border:1px solid var(--control);background:var(--surface);color:var(--ink);font:inherit;font-size:var(--fs-14);font-weight:500;white-space:nowrap;cursor:pointer;text-decoration:none}
+.btn.primary{background:var(--copper);border-color:var(--copper);color:#fff}
+.iconbtn{display:inline-grid;place-items:center;width:36px;height:36px;border:0;background:transparent;color:var(--ink-2);border-radius:4px}
+.avatar{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#dfe5e9;color:var(--ink);font-size:var(--fs-12);font-weight:600}
+.m-only{display:none!important}
+
+/* ---------- public top bar ---------- */
+.pbar{position:sticky;top:0;z-index:30;height:60px;display:flex;align-items:center;gap:28px;padding:0 32px;background:var(--surface);border-bottom:1px solid var(--rule)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:var(--fs-16);color:var(--ink);text-decoration:none;white-space:nowrap}
+.brand .tile{display:grid;place-items:center;width:28px;height:28px;border-radius:4px;background:var(--navy);color:var(--copper-mark);font-size:18px;line-height:1}
+.psearch{display:flex;align-items:center;gap:8px;height:38px;width:360px;padding:0 12px;border:1px solid var(--control);border-radius:4px;background:#fff;color:var(--placeholder);font-size:var(--fs-14)}
+.psearch svg{width:18px;height:18px}
+.pbar nav{display:flex;gap:24px;align-self:stretch}
+.pbar nav a{display:flex;align-items:center;color:var(--ink-2);text-decoration:none;font-size:var(--fs-14)}
+.pbar nav a[aria-current]{color:var(--ink);font-weight:500;box-shadow:inset 0 -2px 0 var(--copper)}
+.pbar .spacer{flex:1}
+.pbar .account{display:flex;align-items:center;gap:8px}
+body:not([data-u=guest]) .guest-only,body[data-u=guest] .user-only{display:none!important}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--fs-13);background:var(--surface)}
+thead th{position:sticky;z-index:2;background:#fafbfb;color:var(--ink-2);font-weight:500;text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule-strong);white-space:nowrap}
+th button{all:unset;cursor:pointer}
+th[aria-sort] button{color:var(--ink)}
+th[aria-sort] button::after{content:'↓';margin-left:4px;color:var(--copper)}
+th.r,td.r{text-align:right}
+td{padding:8px 10px;border-bottom:1px solid var(--rule);white-space:nowrap}
+tbody tr:hover>td{background-color:#f7f9fa}
+tbody tr.sel>td{background-color:var(--copper-tint)}
+tbody tr.sel>td:first-child{box-shadow:inset 3px 0 0 var(--copper)}
+td.na{background-image:var(--hatch)}
+.na-word{color:var(--ink-2)}
+.sub{display:block;font-size:var(--fs-12);color:var(--ink-2)}
+
+/* ---------- ruled record sections ---------- */
+.group h3{margin:0;padding:14px 0 6px;font-size:var(--fs-13);font-weight:600;border-bottom:1px solid var(--ink)}
+dl{margin:0}
+.row{display:grid;grid-template-columns:44% 1fr;border-bottom:1px solid var(--rule);min-height:34px}
+.row dt,.row dd{margin:0;padding:7px 0;font-size:var(--fs-13)}
+.row dt{color:var(--ink-2)}
+.row dd{padding-left:8px}
+
+/* ---------- ZentraValue signature ---------- */
+.zv .label{display:flex;justify-content:space-between;gap:12px;font-size:var(--fs-12);color:var(--ink-2)}
+.zv .fig{font-size:var(--fs-40);font-weight:600;letter-spacing:-.02em;line-height:1.05;margin:6px 0 14px}
+.range-track{position:relative;height:18px;margin:0 0 4px}
+.range-track::before{content:'';position:absolute;left:0;right:0;top:8px;height:2px;background:var(--rule-strong)}
+.range-track i{position:absolute;top:3px;height:12px;background:var(--copper-band);border-left:2px solid var(--copper);border-right:2px solid var(--copper)}
+.range-track i.pt{top:0;height:18px;width:2px;background:var(--ink);border:0;margin-left:-1px}
+.range-ends{display:flex;justify-content:space-between;font-size:var(--fs-12);color:var(--ink-2)}
+.range-ends b{color:var(--ink);font-weight:500}
+.zv .conf{margin:12px 0 0;font-size:var(--fs-13)}
+
+/* ---------- bottom bar (phones) ---------- */
+.bottombar{display:none}
+@media (max-width:700px){
+  .m-only{display:block!important}
+  .d-only{display:none!important}
+  .pbar{height:56px;padding:0 6px 0 14px;gap:8px}
+  .pbar nav,.psearch span,.pbar .account .avatar,.pbar .create{display:none}
+  .psearch{width:auto;border:0;padding:0 8px;height:36px}
+  .pbar .btn{height:32px;padding:0 10px;font-size:var(--fs-13)}
+  .bottombar{position:fixed;left:0;right:0;bottom:0;z-index:30;height:60px;display:grid;grid-template-columns:repeat(5,1fr);background:var(--surface);border-top:1px solid var(--rule)}
+  .bottombar a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--ink-2);font-size:var(--fs-12);text-decoration:none}
+  .bottombar a[aria-current]{color:var(--ink);font-weight:500;box-shadow:inset 0 2px 0 var(--copper)}
+  body{padding-bottom:60px}
+}

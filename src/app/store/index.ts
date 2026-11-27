@@ -14,6 +14,7 @@ import { valuationReducer } from './valuation/valuation.reducer';
 import { ValuationEffects } from './valuation/valuation.effects';
 import { uiReducer } from './ui/ui.reducer';
 import { UiEffects } from './ui/ui.effects';
+import { FailureToastEffects } from './ui/failure-toasts.effects';
 import { userReducer } from './user/user.reducer';
 import { UserEffects } from './user/user.effects';
 import { favoritesReducer } from './favorites/favorites.reducer';
@@ -110,6 +111,7 @@ const appEffects = [
   PropertiesEffects,
   ValuationEffects,
   UiEffects,
+  FailureToastEffects,
   LocationsEffects,
   PropertyImagesEffects,
   PropertyCompareEffects,

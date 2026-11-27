@@ -261,6 +261,8 @@ export class StageBars {
   picked = output<string | null>();
   /** Query parameter that carries the stage to the module (e.g. "stage"). */
   param = input<string | null>(null);
+  /** Other query parameters every row's link keeps (e.g. the module's tab). */
+  query = input<Record<string, string> | null>(null);
   private max = computed(() => Math.max(1, ...this.rows().map((r) => r.count)));
   /** Open stages step through the five-colour ordinal ramp in pipeline order. */
   private ramp = computed(() => {
@@ -276,7 +278,8 @@ export class StageBars {
   }
   queryFor(r: StageRow) {
     const p = this.param();
-    return p ? { [p]: r.key } : null;
+    const base = this.query();
+    return p ? { ...base, [p]: r.key } : base;
   }
   money(v: number | null | undefined) {
     return usdCompact(v);

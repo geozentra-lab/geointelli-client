@@ -91,12 +91,12 @@ describe('Role history page', () => {
       email.dispatchEvent(new Event('input'));
       await settle();
     };
-    // A typo is caught here, said only once Find is pressed.
+    // Text that is not a full email needs a pick from the list; said only once Find is pressed.
     await type('leo.marin');
     expect(el.querySelector('#ur-find-why')).toBeNull();
     button(el, 'Find')!.click();
     await settle();
-    expect(text(el.querySelector('#ur-find-why'))).toBe('Enter an email address, like name@example.com.');
+    expect(text(el.querySelector('#ur-find-why'))).toBe('Choose an account from the list, or enter the full email.');
     expect(of(A.findUser.type)).toHaveLength(0);
 
     // No account: said in words, and the page stays.
@@ -122,6 +122,90 @@ describe('Role history page', () => {
     await new Promise((r) => setTimeout(r));
     await settle();
     expect(TestBed.inject(Router).url).toBe('/admin/users/52?email=leo.marin@example.test');
+  });
+
+  describe('suggestions while typing', () => {
+    const dana = { id: 7, email: 'dana@bank.example', firstName: 'Dana', lastName: 'Okafor' };
+    const noName = { id: 9, email: 'dan.lee@example.test', firstName: null, lastName: null };
+    async function open() {
+      const page = await setup('/admin/users');
+      const input = page.el.querySelector<HTMLInputElement>('#ur-email')!;
+      const type = async (v: string) => {
+        input.value = v;
+        input.dispatchEvent(new Event('input'));
+        await page.settle();
+      };
+      const press = async (key: string) => {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        await page.settle();
+      };
+      const panel = () => page.el.querySelector('.ur-suggest');
+      const options = () => [...page.el.querySelectorAll('[role=option]')].map(spaced);
+      const landed = async () => {
+        await new Promise((r) => setTimeout(r));
+        await page.settle();
+        return TestBed.inject(Router).url;
+      };
+      return { ...page, input, type, press, panel, options, landed };
+    }
+
+    it('lists the accounts from 2 characters, by name and email, and opens the one picked with the keys', async () => {
+      const { el, input, type, press, panel, options, landed } = await open();
+      expect(text(el.querySelector('label[for=ur-email]'))).toBe('Email or name');
+      await type('d');
+      expect(panel()).toBeNull();
+      await type('dan');
+      expect(of(A.searchUsers.type).at(-1)).toEqual(A.searchUsers({ query: 'dan' }));
+      expect(input.getAttribute('aria-expanded')).toBe('true');
+      expect(text(panel())).toBe('Searching accounts…');
+
+      store.dispatch(A.usersSuggested({ query: 'dan', users: [dana, noName] }));
+      await press('ArrowDown');
+      expect(options()).toEqual(['Dana Okafor dana@bank.example User ID 7', 'dan.lee@example.test User ID 9']);
+      expect(input.getAttribute('aria-activedescendant')).toBe('ur-suggestion-0');
+      await press('ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe('ur-suggestion-1');
+      // Escape closes the list and Down opens it again.
+      await press('Escape');
+      expect(panel()).toBeNull();
+      await press('ArrowDown');
+      expect(panel()).not.toBeNull();
+      await press('ArrowDown');
+      await press('Enter');
+      // Picking closes the list (and leaving the page closes it again).
+      expect(of(A.searchUsersClosed.type).length).toBeGreaterThan(0);
+      expect(of(A.findUser.type)).toHaveLength(0);
+      expect(await landed()).toBe('/admin/users/7?email=dana@bank.example');
+    });
+
+    it('says when nothing matches, and offers Retry when the suggestions failed', async () => {
+      const { el, type, panel, settle } = await open();
+      await type('zz');
+      store.dispatch(A.usersSuggested({ query: 'zz', users: [] }));
+      await settle();
+      expect(text(panel())).toBe('No email or name starts with “zz”. An account appears once its owner has signed in.');
+      await type('zzq');
+      store.dispatch(A.searchUsersFailed({ query: 'zzq', error: 'The request could not be completed. Please retry.' }));
+      await settle();
+      expect(text(panel())).toBe('Suggestions could not be loaded. Retry');
+      button(el, 'Retry')!.click();
+      expect(of(A.searchUsers.type).at(-1)).toEqual(A.searchUsers({ query: 'zzq', immediate: true }));
+    });
+
+    it('Find opens the only match of a name, and says when the list is full', async () => {
+      const { el, type, panel, landed, settle } = await open();
+      await type('dan');
+      const ten = Array.from({ length: 10 }, (_, i) => ({ ...noName, id: 100 + i, email: `dan${i}@example.test` }));
+      store.dispatch(A.usersSuggested({ query: 'dan', users: ten }));
+      await settle();
+      expect(text(panel()!.querySelector('.ur-suggest-more'))).toBe('The first 10 by email. Type more to narrow them.');
+
+      await type('okafor');
+      store.dispatch(A.usersSuggested({ query: 'okafor', users: [dana] }));
+      button(el, 'Find')!.click();
+      expect(of(A.findUser.type)).toHaveLength(0);
+      expect(await landed()).toBe('/admin/users/7?email=dana@bank.example');
+    });
   });
 
   it('loads the user’s history and lists every grant and revoke in words', async () => {

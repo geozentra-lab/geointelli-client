@@ -39,7 +39,8 @@ const NOT_IN_RECORD = 'Not in the county record';
             } @else {
               Latest roll year
             }
-            · {{ f.totalElements }} {{ f.totalElements === 1 ? 'feature' : 'features' }}
+            @let n = f.totalElements ?? f.features.length;
+            · {{ n }} {{ n === 1 ? 'feature' : 'features' }}
           } @else {
             Pools, patios, fences and other extras the county assesses.
           }
@@ -146,9 +147,9 @@ const NOT_IN_RECORD = 'Not in the county record';
             </table>
           </div>
           <gz-pagination
-            [page]="f.page"
-            [pages]="f.totalPages"
-            [total]="f.totalElements"
+            [page]="f.page ?? 0"
+            [pages]="f.totalPages ?? 1"
+            [total]="f.totalElements ?? f.features.length"
             [loading]="features().loading"
             (changed)="loadFeatures($event)"
           />

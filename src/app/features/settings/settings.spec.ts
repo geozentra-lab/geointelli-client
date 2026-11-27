@@ -9,6 +9,7 @@ import { provideTestStore } from '../../store';
 import { UserActions } from '../../store/user/user.actions';
 import { selectUserState } from '../../store/user/user.selectors';
 import { RealtorLicenseActions } from '../../store/realtor-license/realtor-license.actions';
+import { AccountActions } from '../../store/account/account.actions';
 import { KeycloakService } from '../../core/auth/keycloak.service';
 import { UserDTO, UserPreferencesDTO } from '../../core/models/api';
 import { RealtorLicenseVerificationDTO } from '../../core/models/realtor-license';
@@ -109,6 +110,30 @@ describe('Settings', () => {
   const choice = (root: Element, words: string) =>
     [...root.querySelectorAll('label.se-choice')].find((l) => text(l.querySelector('span')) === words)!.querySelector('input')!;
   const answerDelivery = (body = delivery) => http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/notifications/preferences')).flush(body);
+
+  it('offers account types only once the role requests are read, and says a failed read with Retry', async () => {
+    const { el, settle } = await setup();
+    store.dispatch(
+      AccountActions.entitlementsLoaded({
+        entitlements: { onboardingCompleted: true, roles: ['user'], features: { normalUser: true }, pendingRoles: [] } as never,
+      }),
+    );
+    await settle();
+    const section = el.querySelector('#account-type')!;
+    const requests = () => http.match((r) => r.method === 'GET' && r.url.endsWith('/users/me/role-requests'));
+    requests().forEach((r) => r.flush({ message: 'down' }, { status: 500, statusText: 'Server Error' }));
+    await settle();
+    // Not the choices: a pending request (and its Cancel) can't be told apart from none.
+    expect(section.textContent).not.toContain('Add a professional account type');
+    expect(text(section)).toContain('The request could not be completed. Please retry.');
+    button(section, 'Retry').click();
+    await settle();
+    const again = requests();
+    expect(again).toHaveLength(1);
+    again[0].flush([]);
+    await settle();
+    expect(section.textContent).toContain('Add a professional account type');
+  });
 
   it('asks a guest to sign in and loads nothing', async () => {
     auth.loggedIn = false;
@@ -227,6 +252,29 @@ describe('Settings', () => {
     expect(of(RealtorLicenseActions.submit.type)[0]).toMatchObject({
       request: { licenseHolderName: 'Dana Okafor', licensingState: 'FL', licenseNumber: 'SL3487215', brokerageName: 'Bayline Realty' },
     });
+  });
+
+  it('offers a renewal once a verified license has expired, and not while it is valid', async () => {
+    const { el, settle } = await setup(profile({ realtorLicenseStatus: 'VERIFIED' }));
+    answerDelivery();
+    const verified = (expires: string | null) =>
+      license(9, { status: 'VERIFIED', rejectionReason: null, licenseExpirationDate: expires });
+    // Valid (or no expiry date): the backend refuses a new submission, so there is no form.
+    store.dispatch(RealtorLicenseActions.loaded({ history: [verified('2099-12-31')] }));
+    await settle();
+    const section = el.querySelector('#license')!;
+    expect(section.querySelector('#lic-number')).toBeNull();
+    store.dispatch(RealtorLicenseActions.loaded({ history: [verified(null)] }));
+    await settle();
+    expect(section.querySelector('#lic-number')).toBeNull();
+    // Expired (the expiry run revoked the realtor role): the form is back, filled from it, date empty.
+    store.dispatch(RealtorLicenseActions.loaded({ history: [verified('2020-01-31')] }));
+    await settle();
+    expect(text(section)).toContain('This license expired on');
+    expect(section.querySelector<HTMLInputElement>('#lic-number')!.value).toBe('SL348721');
+    expect(section.querySelector<HTMLInputElement>('#lic-expires')!.value).toBe('');
+    // The earliest expiry the backend takes is today in UTC.
+    expect(section.querySelector<HTMLInputElement>('#lic-expires')!.min).toBe(new Date().toISOString().slice(0, 10));
   });
 
   it('shows the license section only to realtors or anyone with a submission', async () => {

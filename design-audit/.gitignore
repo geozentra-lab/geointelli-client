@@ -1,0 +1,13 @@
+.build/
+.build-before/
+.build-start/
+node_modules/
+.src-before-3/
+.src-before-4/
+.src-before-5/
+.src-before-6/
+.src-before-7/
+.src-before-8/
+.src-before-9/
+.build-pre-10/
+.src-before-10/

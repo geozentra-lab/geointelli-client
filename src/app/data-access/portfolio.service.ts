@@ -17,9 +17,9 @@ import { queryParams } from './http-params';
 export class PortfolioService {
   private http = inject(HttpClient);
   private base = environment.apiUrl + '/portfolios';
-  list(page = 0) {
+  list(page = 0, size = 20) {
     return this.http.get<Page<PortfolioDTO>>(this.base, {
-      params: queryParams({ page, size: 20 }),
+      params: queryParams({ page, size }),
     });
   }
   create(body: PortfolioRequest) {

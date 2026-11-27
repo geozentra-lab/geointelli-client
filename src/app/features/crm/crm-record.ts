@@ -66,8 +66,15 @@ const STYLES = `
 function useNames() {
   const w = inject(Workspace);
   const names = w.store.selectSignal(selectCrmClientNames);
+  const crm = w.store.selectSignal(selectCrm);
   return (id: number | null) =>
-    id === null ? null : (names()[id] ?? 'Unavailable (not among your 100 newest clients)');
+    id === null ? null : (names()[id] ?? missing('clients', crm().options.failed));
+}
+/** Why a linked record's name isn't shown: beyond the 100 newest, or the list couldn't be read. */
+function missing(noun: 'clients' | 'leads' | 'deals', failed: boolean) {
+  return failed
+    ? 'Unavailable (your ' + noun + ' could not be loaded)'
+    : 'Unavailable (not among your 100 newest ' + noun + ')';
 }
 
 @Component({
@@ -261,10 +268,10 @@ export class CrmTaskRecord {
   readonly clientName = useNames();
   readonly label = crmLabel;
   leadTitle(id: number) {
-    return this.crm().options.leads.find((l) => l.id === id)?.title ?? 'Unavailable (not among your 100 newest leads)';
+    return this.crm().options.leads.find((l) => l.id === id)?.title ?? missing('leads', this.crm().options.failed);
   }
   dealTitle(id: number) {
-    return this.crm().options.deals.find((d) => d.id === id)?.title ?? 'Unavailable (not among your 100 newest deals)';
+    return this.crm().options.deals.find((d) => d.id === id)?.title ?? missing('deals', this.crm().options.failed);
   }
   day(v: string | null) {
     return formatLocalDate(v);
@@ -311,7 +318,7 @@ export class CrmDealRecord {
   readonly clientName = useNames();
   readonly label = crmLabel;
   leadTitle(id: number) {
-    return this.crm().options.leads.find((l) => l.id === id)?.title ?? 'Unavailable (not among your 100 newest leads)';
+    return this.crm().options.leads.find((l) => l.id === id)?.title ?? missing('leads', this.crm().options.failed);
   }
   day(v: string | null) {
     return formatLocalDate(v);

@@ -1,6 +1,6 @@
 import { SessionScopedEffects } from '../session-scoped-effects';
 import { Injectable, inject } from '@angular/core';
-import { Store } from '@ngrx/store';
+import { Action, Store } from '@ngrx/store';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import {
   EMPTY,
@@ -19,7 +19,6 @@ import { PortfolioService } from '../../data-access/portfolio.service';
 import { portfolioActions as A } from './portfolio.actions';
 import { selectPortfolioState } from './portfolio.selectors';
 import { PortfolioMutation } from './portfolio.model';
-import { UserActions } from '../user/user.actions';
 import { UiActions } from '../ui/ui.actions';
 import { apiError } from '../../core/models/api-error';
 @Injectable()
@@ -27,11 +26,15 @@ export class PortfolioEffects extends SessionScopedEffects {
   private actions = inject(Actions);
   private service = inject(PortfolioService);
   private store = inject(Store);
+  /**
+   * The Portfolio page asks for the list when it opens. Not at sign-in: portfolios are investor
+   * routes (403 for every other account type, which would also force a token refresh).
+   */
   load = createEffect(() =>
     this.actions.pipe(
-      ofType(A.load, UserActions.loaded),
+      ofType(A.load),
       switchMap((a) =>
-        this.service.list('page' in a ? a.page : 0).pipe(
+        this.service.list(a.page).pipe(
           map((page) => A.loaded({ page })),
           catchError((e) => of(A.failed({ section: 'list', error: apiError(e) }))),
         ),
@@ -157,7 +160,7 @@ export class PortfolioEffects extends SessionScopedEffects {
       ofType(A.mutate),
       concatMap(({ mutation }) =>
         this.write(mutation).pipe(
-          map(() => A.mutationSucceeded()),
+          map(() => A.mutationSucceeded({ mutation })),
           catchError((e) => of(A.failed({ section: 'save', error: apiError(e) }))),
         ),
       ),
@@ -167,12 +170,22 @@ export class PortfolioEffects extends SessionScopedEffects {
     this.actions.pipe(
       ofType(A.mutationSucceeded),
       withLatestFrom(this.store.select(selectPortfolioState)),
-      mergeMap(([_, s]) => {
-        const result = [
+      mergeMap(([{ mutation }, s]) => {
+        const result: Action[] = [
           UiActions.toast({ message: 'Changes saved.' }),
           A.load({ page: s.page?.page ?? 0 }),
-          A.refresh(),
         ];
+        // What was just deleted is not read again (the backend answers 404 for it): the deleted
+        // portfolio or holding stops being the selection instead.
+        if (mutation?.kind === 'remove-portfolio' && mutation.id === s.selectedId) {
+          result.push(A.select({ id: null }));
+          return of(...result);
+        }
+        result.push(A.refresh());
+        if (mutation?.kind === 'remove-holding' && mutation.holdingId === s.selectedHoldingId) {
+          result.push(A.selectHolding({ holdingId: null }));
+          return of(...result);
+        }
         return s.selectedId !== null && s.selectedHoldingId !== null
           ? of(
               ...result,

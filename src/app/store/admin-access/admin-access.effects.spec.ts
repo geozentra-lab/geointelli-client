@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Action, Store, provideState, provideStore } from '@ngrx/store';
 import { Actions, provideEffects } from '@ngrx/effects';
+import { vi } from 'vitest';
 import { environment } from '../../../environments/environment';
 import {
   ROLE_MANAGEMENT_UNAVAILABLE,
@@ -12,7 +13,7 @@ import {
 } from '../../core/models/account';
 import { UiActions } from '../ui/ui.actions';
 import { AdminAccessActions as A } from './admin-access.actions';
-import { AdminAccessEffects, NO_USER_FOR_EMAIL } from './admin-access.effects';
+import { AdminAccessEffects, NO_USER_FOR_EMAIL, USER_SEARCH_PAUSE_MS } from './admin-access.effects';
 import { adminAccessReducer, revokeKey } from './admin-access.reducer';
 import { currentRoles, selectAdminAccess } from './admin-access.selectors';
 
@@ -212,7 +213,10 @@ describe('Admin access effects', () => {
       );
     expect(state().requestErrors[1]).toBe(ROLE_MANAGEMENT_UNAVAILABLE);
     expect(state().requests.value?.content[0].status).toBe('PENDING');
-    expect(toasts()).toHaveLength(0);
+    // Said in the row and in an error toast, which stays until it is closed.
+    expect(toasts()).toEqual([
+      UiActions.toast({ message: ROLE_MANAGEMENT_UNAVAILABLE, kind: 'error' }),
+    ]);
     http.expectNone((r) => r.url === api + '/role-requests');
     // A second try is sent again: the failed one is over.
     store.dispatch(A.approveRoleRequest({ id: 1, reason: null }));
@@ -236,7 +240,7 @@ describe('Admin access effects', () => {
         { status: 400, message: 'reason: size must be between 1 and 500' },
         { status: 400, statusText: 'Bad Request' },
       );
-    expect(state().requestErrors[2]).toBe('reason: size must be between 1 and 500');
+    expect(state().requestErrors[2]).toBe('Reason must be 1 to 500 characters.');
     http.expectNone((r) => r.url === api + '/role-requests');
   });
 
@@ -313,11 +317,72 @@ describe('Admin access effects', () => {
     store.dispatch(A.findUser({ email: 'a@' }));
     r = http.expectOne((r) => r.url === api + '/users');
     r.flush({ message: 'email must be an email address' }, { status: 400, statusText: 'Bad Request' });
-    expect(state().userLookup.error).toBe('email must be an email address');
+    expect(state().userLookup.error).toBe('Email must be an email address.');
 
     // An answer for an email no longer asked about is dropped.
     store.dispatch(A.userFound({ email: 'old@example.test', user: { id: 1 } as never }));
     expect(state().userLookup.value).toBeNull();
+  });
+
+  describe('user search (suggestions while typing)', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    const searches = () => http.match((r) => r.url === api + '/users/search');
+    const dana = { id: 7, email: 'dana@bank.example', firstName: 'Dana', lastName: 'Okafor' };
+
+    it('asks 250 ms after the typing stops, for the newest text only, spaces as the backend counts them', async () => {
+      store.dispatch(A.searchUsers({ query: 'd' }));
+      await vi.advanceTimersByTimeAsync(USER_SEARCH_PAUSE_MS);
+      expect(searches()).toHaveLength(0);
+      expect(state().userSearch.loading).toBe(false);
+
+      store.dispatch(A.searchUsers({ query: 'da' }));
+      await vi.advanceTimersByTimeAsync(100);
+      store.dispatch(A.searchUsers({ query: '  dana   ok ' }));
+      expect(state().userSearch).toMatchObject({ query: 'dana ok', loading: true });
+      await vi.advanceTimersByTimeAsync(USER_SEARCH_PAUSE_MS - 1);
+      expect(searches()).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      const [r] = searches();
+      expect(r.request.method).toBe('GET');
+      expect(r.request.params.get('q')).toBe('dana ok');
+      expect(r.request.params.get('size')).toBe('10');
+      r.flush([dana]);
+      expect(state().userSearch).toEqual({ query: 'dana ok', users: [dana], loading: false, error: null });
+    });
+
+    it('cancels the request in flight for newer text, and keeps the list while the new one loads', async () => {
+      store.dispatch(A.searchUsers({ query: 'da', immediate: true }));
+      await vi.advanceTimersByTimeAsync(0);
+      const first = searches()[0];
+      store.dispatch(A.searchUsers({ query: 'dan' }));
+      expect(first.cancelled).toBe(true);
+      // An answer for older text is dropped.
+      store.dispatch(A.usersSuggested({ query: 'da', users: [dana] }));
+      expect(state().userSearch.users).toEqual([]);
+      await vi.advanceTimersByTimeAsync(USER_SEARCH_PAUSE_MS);
+      searches()[0].flush([dana]);
+      store.dispatch(A.searchUsers({ query: 'dana' }));
+      expect(state().userSearch).toMatchObject({ query: 'dana', users: [dana], loading: true });
+      // Closing the list cancels the wait: nothing is sent.
+      store.dispatch(A.searchUsersClosed());
+      await vi.advanceTimersByTimeAsync(USER_SEARCH_PAUSE_MS);
+      expect(searches()).toHaveLength(0);
+      expect(state().userSearch).toEqual({ query: '', users: [], loading: false, error: null });
+    });
+
+    it('a failure is kept for the list to say, and an empty answer is an empty list', async () => {
+      store.dispatch(A.searchUsers({ query: 'zz', immediate: true }));
+      await vi.advanceTimersByTimeAsync(0);
+      searches()[0].flush([]);
+      expect(state().userSearch).toMatchObject({ users: [], loading: false, error: null });
+      store.dispatch(A.searchUsers({ query: 'zzz', immediate: true }));
+      await vi.advanceTimersByTimeAsync(0);
+      searches()[0].flush('down', { status: 500, statusText: 'Server Error' });
+      expect(state().userSearch.error).toBeTruthy();
+      expect(state().userSearch.loading).toBe(false);
+      expect(toasts()).toHaveLength(0);
+    });
   });
 
   it('reads a user’s role history, revokes with the reason, and reads the history again', () => {

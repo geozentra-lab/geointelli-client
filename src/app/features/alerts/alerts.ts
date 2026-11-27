@@ -287,8 +287,23 @@ export class Alerts {
     return countOf(st.totalElements, 'alert') + (paused && st.totalPages <= 1 ? ` · ${paused} paused` : '');
   });
   private focusCount = false;
+  /** Rules whose monitoring status this visit asked for, by id and last change. */
+  private readonly monitored = new Set<string>();
 
   constructor() {
+    // Each shown rule's monitoring status, again after the rule changes. Asked here, not on every
+    // list load: the list also loads at start-up for the rest of the app, which never shows it.
+    effect(() => {
+      const rules = this.rules();
+      untracked(() => {
+        for (const r of rules) {
+          const key = r.id + '|' + r.updatedAt;
+          if (this.monitored.has(key)) continue;
+          this.monitored.add(key);
+          this.w.store.dispatch(A.monitoring({ id: r.id }));
+        }
+      });
+    });
     // The rules (and every saved search's name, for the table), once signed in: fresh each visit.
     effect(() => {
       if (!this.w.auth.isLoggedIn()) return;

@@ -1,0 +1,203 @@
+<!doctype html>
+<!--
+  Public shell on the property page (design-audit, before DESIGN.md). Not app code.
+  ?u=guest shows the signed-out bar; default is a signed-in buyer. Every figure comes from data.js,
+  generated from the mock fixtures by make-data.cjs (property 42, its valuation and valuation history).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Public shell, property</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="public.css" />
+<style>
+.page{max-width:1264px;padding:24px 32px 64px}
+.rec-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}
+h1{margin:0;font-size:var(--fs-32);font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.facts-line{display:flex;flex-wrap:wrap;gap:4px 18px;margin:8px 0 0;color:var(--ink-2);font-size:var(--fs-14)}
+.tabs{position:sticky;top:60px;z-index:20;display:flex;gap:26px;margin:20px 0 0;background:var(--paper);border-bottom:1px solid var(--rule-strong);overflow-x:auto;scrollbar-width:none}
+.tabs a{padding:10px 0;color:var(--ink-2);text-decoration:none;white-space:nowrap;font-size:var(--fs-14)}
+.tabs a[aria-current]{color:var(--ink);font-weight:500;box-shadow:inset 0 -2px 0 var(--copper)}
+.grid{display:grid;grid-template-columns:minmax(0,8fr) minmax(0,4fr);gap:32px;margin-top:24px;align-items:start}
+.main>section{background:var(--surface);border-top:2px solid var(--ink);padding:4px 24px 24px;margin-bottom:24px}
+.main h2{margin:14px 0 2px;font-size:var(--fs-16);font-weight:600}
+.h2meta{margin:0 0 10px;color:var(--ink-2);font-size:var(--fs-13)}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:0 32px}
+.aside{position:sticky;top:120px;background:var(--surface);border-top:2px solid var(--ink);padding:16px 24px 20px}
+.aside .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.aside .group h3{padding-top:18px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:4px 0 6px;font-size:var(--fs-12);color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block}
+.chart svg{display:block;width:100%}
+.chart text{font-family:'DM Sans',system-ui,sans-serif;font-variant-numeric:tabular-nums}
+.tablewrap{border:1px solid var(--rule);margin-top:12px;overflow-x:auto}
+thead th{top:0}
+@media (max-width:700px){
+  .page{padding:16px 14px 32px}
+  h1{font-size:var(--fs-24)}
+  .rec-head{display:block}
+  .grid{display:flex;flex-direction:column;gap:20px;margin-top:16px}
+  .aside{position:static;order:-1;padding:14px 16px 16px}
+  .aside .fig{font-size:var(--fs-32)}
+  .tabs{top:56px;margin-top:16px;gap:22px;-webkit-mask-image:linear-gradient(90deg,#000 85%,transparent);mask-image:linear-gradient(90deg,#000 85%,transparent)}
+  .grid .tabs-slot{order:-1}
+  .main>section{padding:2px 16px 18px;margin-bottom:16px}
+  .facts{grid-template-columns:1fr}
+  .hide-m{display:none}
+}
+</style>
+</head>
+<body>
+<header class="pbar">
+  <a class="brand" href="#"><span class="tile" aria-hidden="true">⌁</span>GeoZentra</a>
+  <div class="psearch" role="search"><svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg><span>Search address or folio</span></div>
+  <nav aria-label="Main">
+    <a href="#">Explore</a><a href="#">Opportunities</a><a href="#">Compare</a>
+    <a href="#" class="user-only">Saved</a><a href="#" class="user-only">Alerts</a>
+  </nav>
+  <span class="spacer"></span>
+  <div class="account">
+    <button class="iconbtn user-only" aria-label="Notifications"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg></button>
+    <span class="avatar user-only" aria-label="Account">AU</span>
+    <a class="btn guest-only" href="#">Sign in</a><a class="btn primary guest-only create" href="#">Create account</a>
+  </div>
+</header>
+
+<main class="page">
+  <div class="rec-head">
+    <div>
+      <h1 data-f="address"></h1>
+      <p class="facts-line" data-f="line"></p>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Property sections">
+    <a href="#" aria-current="page">Overview</a><a href="#">Valuation</a><a href="#">Location</a><a href="#">Sales</a><a href="#">Features</a><a href="#">Comparables</a>
+  </nav>
+  <div class="grid">
+    <div class="main">
+      <section aria-labelledby="facts-h">
+        <h2 id="facts-h">Property facts</h2>
+        <p class="h2meta">From the Miami-Dade property appraiser's record.</p>
+        <div class="facts" data-f="facts"></div>
+      </section>
+      <section aria-labelledby="sales-h">
+        <h2 id="sales-h">Sales and ZentraValue over time</h2>
+        <p class="h2meta" data-f="salesmeta"></p>
+        <div class="legend">
+          <span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="#172735"/></svg>Recorded sale</span>
+          <span><svg width="18" height="12" aria-hidden="true"><path d="M1 6h16" stroke="#b4672f" stroke-width="2"/></svg>ZentraValue, monthly</span>
+          <span><svg width="14" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="#b4672f" fill-opacity=".16"/></svg>80% range</span>
+        </div>
+        <div class="chart" data-f="chart"></div>
+        <div class="tablewrap"><table data-f="sales"></table></div>
+      </section>
+      <section aria-labelledby="assess-h">
+        <h2 id="assess-h">Assessments</h2>
+        <p class="h2meta">Values set by the county for tax purposes; not a market value.</p>
+        <div class="tablewrap"><table data-f="assess"></table></div>
+      </section>
+    </div>
+    <aside class="aside" aria-label="ZentraValue" data-f="aside"></aside>
+  </div>
+</main>
+
+<nav class="bottombar" aria-label="Main">
+  <a href="#" aria-current="page"><svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg>Explore</a>
+  <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>For you</a>
+  <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>Saved</a>
+  <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg>Alerts</a>
+  <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/></svg>More</a>
+</nav>
+
+<script src="data.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+if (q.get('u') === 'guest') document.body.dataset.u = 'guest';
+const F = window.FIX, p = F.property, v = F.valuation;
+const usd = (n) => '$' + Math.round(n).toLocaleString('en-US');
+const folio = (f) => `${f.slice(0, 2)}-${f.slice(2, 6)}-${f.slice(6, 9)}-${f.slice(9)}`;
+const day = (iso, opt = { month: 'short', day: 'numeric', year: 'numeric' }) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', ...opt });
+const title = (s) => s ? s.toLowerCase().replace(/(^|[\s-])\S/g, (m) => m.toUpperCase()) : s;
+const set = (k, html) => { document.querySelector(`[data-f=${k}]`).innerHTML = html; };
+const na = '<dd class="na"><span class="na-word">Unavailable</span></dd>';
+const fact = (label, val) => `<div class="row"><dt>${label}</dt>${val == null ? na : `<dd class="tnum">${val}</dd>`}</div>`;
+
+set('address', p.address.address);
+set('line', [`${p.address.city}, FL ${p.address.zip}`, `Folio ${folio(p.folio)}`, p.dorDescription, p.neighborhoodDescription].map((s) => `<span>${s}</span>`).join(''));
+
+const land = p.lands?.[0];
+set('facts', `<div class="group"><h3>Building</h3><dl>
+  ${fact('Bedrooms', p.bedroomCount)}
+  ${fact('Bathrooms', p.bathroomCount == null ? null : p.bathroomCount + (p.halfBathroomCount ? `, ${p.halfBathroomCount} half` : ''))}
+  ${fact('Living area', p.buildingHeatedArea == null ? null : p.buildingHeatedArea.toLocaleString('en-US') + ' sq ft')}
+  ${fact('Year built', p.yearBuilt)}
+  ${fact('Floors', p.floorCount)}</dl></div>
+  <div class="group"><h3>Land</h3><dl>
+  ${fact('Lot', p.lotSize == null ? null : p.lotSize.toLocaleString('en-US') + ' sq ft')}
+  ${fact('Frontage and depth', land ? `${land.frontFeet} ft by ${land.depth} ft` : null)}
+  ${fact('Zoning', title(p.primaryZoneDescription)?.replace(' - ', ', '))}
+  ${fact('Subdivision', title(p.subdivision))}
+  ${fact('Municipality', p.municipality)}</dl></div>`);
+
+// ZentraValue: the estimate, its 80% range on a scale set by the 90% range, and confidence.
+const e = v.estimate, r80 = e.range80, r90 = e.range90 || { low: r80.low - (r80.high - r80.low) / 4, high: r80.high + (r80.high - r80.low) / 4 };
+const pos = (x) => ((x - r90.low) / (r90.high - r90.low) * 100).toFixed(1) + '%';
+const f1 = v.forecasts?.oneYear, last = v.evidence?.lastSale;
+set('aside', `<div class="zv">
+  <div class="label"><span>ZentraValue</span><span>${day(v.method.predictionDate)}</span></div>
+  <div class="fig">${usd(e.value)}</div>
+  <div class="range-track" aria-hidden="true"><i style="left:${pos(r80.low)};right:calc(100% - ${pos(r80.high)})"></i><i class="pt" style="left:${pos(e.value)}"></i></div>
+  <div class="range-ends tnum"><span><b>${usd(r80.low)}</b></span><span>80% range</span><span><b>${usd(r80.high)}</b></span></div>
+  <p class="conf">${e.confidence[0].toUpperCase() + e.confidence.slice(1)} confidence <span class="muted">from sales through ${day(v.method.dataThrough)}</span></p></div>
+  <div class="group"><h3>Next 12 months</h3><dl>
+    ${f1 ? `<div class="row"><dt>Forecast</dt><dd class="tnum">${usd(f1.value)}</dd></div><div class="row"><dt>80% range</dt><dd class="tnum">${usd(f1.low)} to ${usd(f1.high)}</dd></div>` : fact('Forecast', null)}
+    ${last?.hasSaleHistory ? `<div class="row"><dt>Last sale</dt><dd class="tnum">${usd(last.price)}, ${day(last.date)}</dd></div>` : fact('Last sale', null)}
+  </dl></div>
+  <div class="actions"><button class="btn primary">Save</button><button class="btn">Compare</button><button class="btn">Open in Studio</button></div>`);
+
+// Sales and estimates on a true time axis: x is the date, never the event index.
+const sales = [...p.sales].filter((s) => s.salePrice > 0).sort((a, b) => a.saleDate.localeCompare(b.saleDate));
+const hist = F.history.content.map((h) => ({ d: h.valuation.method.predictionDate, v: h.valuation.estimate.value, lo: h.valuation.estimate.range80.low, hi: h.valuation.estimate.range80.high })).sort((a, b) => a.d.localeCompare(b.d));
+set('salesmeta', `${sales.length} recorded sales; the last ${hist.length} monthly estimates, ${day(hist[0].d, { month: 'short', year: 'numeric' })} to ${day(hist.at(-1).d, { month: 'short', year: 'numeric' })}.`);
+function drawChart() {
+  const box = document.querySelector('[data-f=chart]');
+  const W = box.clientWidth, phone = W < 520, H = phone ? 220 : 250;
+  const m = { l: 52, r: 14, t: 26, b: 28 };
+  const t = (iso) => new Date(iso + 'T00:00:00Z').getTime();
+  const x0 = t('2006-01-01'), x1 = t('2027-07-01');
+  const X = (iso) => m.l + (t(iso) - x0) / (x1 - x0) * (W - m.l - m.r);
+  const yMax = 1200000, Y = (n) => m.t + (1 - n / yMax) * (H - m.t - m.b);
+  const years = phone ? [2010, 2015, 2020, 2025] : [2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024, 2026];
+  const k = (n) => n === 0 ? '$0' : n >= 1e6 ? '$' + (n / 1e6).toFixed(1) + 'M' : '$' + n / 1000 + 'K';
+  let s = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Recorded sales and monthly ZentraValue estimates by date. The table below lists the same values.">`;
+  for (const n of [0, 400000, 800000, 1200000]) s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(n)}" y2="${Y(n)}" stroke="${n ? '#e2e7ea' : '#c5ced4'}"/><text x="${m.l - 8}" y="${Y(n) + 4}" text-anchor="end" font-size="12" fill="#4e6170">${k(n)}</text>`;
+  for (const yr of years) s += `<text x="${X(yr + '-01-01')}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#4e6170">${yr}</text><line x1="${X(yr + '-01-01')}" x2="${X(yr + '-01-01')}" y1="${H - m.b}" y2="${H - m.b + 4}" stroke="#c5ced4"/>`;
+  // 80% range band, then the monthly line, then the end dot
+  s += `<path d="M${hist.map((h) => `${X(h.d)},${Y(h.hi)}`).join('L')}L${[...hist].reverse().map((h) => `${X(h.d)},${Y(h.lo)}`).join('L')}Z" fill="#b4672f" fill-opacity=".16"/>`;
+  s += `<path d="M${hist.map((h) => `${X(h.d)},${Y(h.v)}`).join('L')}" fill="none" stroke="#b4672f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const end = hist.at(-1);
+  s += `<circle cx="${X(end.d)}" cy="${Y(end.v)}" r="5" fill="#b4672f" stroke="#fff" stroke-width="2"/>`;
+  s += `<text x="${X(end.d) - 10}" y="${Y(end.hi) - 8}" text-anchor="end" font-size="12" fill="#172735" font-weight="500">ZentraValue ${usd(end.v)}</text>`;
+  for (const sl of sales) {
+    const cx = X(sl.saleDate), cy = Y(sl.salePrice);
+    s += `<circle cx="${cx}" cy="${cy}" r="5" fill="#172735" stroke="#fff" stroke-width="2"/>`;
+    s += `<text x="${cx}" y="${cy - 12}" text-anchor="middle" font-size="12" fill="#172735" font-weight="500">${usd(sl.salePrice)}</text>`;
+    s += `<text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="12" fill="#4e6170">${day(sl.saleDate, { month: 'short', year: 'numeric' })}</text>`;
+  }
+  box.innerHTML = s + '</svg>';
+}
+drawChart();
+addEventListener('resize', drawChart);
+
+const saleType = (t) => ({ 'Qual by exam of deed': 'Qualified, by deed review', 'Sales which are qualified': 'Qualified' })[t] || t;
+set('sales', `<thead><tr><th aria-sort="descending"><button>Date</button></th><th class="r"><button>Price</button></th><th class="hide-m"><button>Type</button></th><th class="hide-m"><button>Instrument</button></th></tr></thead><tbody>
+  ${[...sales].reverse().map((s) => `<tr><td>${day(s.saleDate)}</td><td class="r">${usd(s.salePrice)}</td><td class="hide-m">${saleType(s.saleType)}</td><td class="hide-m">${s.instrumentNumber}</td></tr>`).join('')}</tbody>`);
+set('assess', `<thead><tr><th aria-sort="descending"><button>Year</button></th><th class="r"><button>Total value</button></th><th class="r"><button>Assessed</button></th><th class="r hide-m"><button>Land</button></th><th class="r hide-m"><button>Building</button></th></tr></thead><tbody>
+  ${p.assessments.map((a) => `<tr><td>${a.year}</td><td class="r">${usd(a.totalValue)}</td><td class="r">${usd(a.assessedValue)}</td><td class="r hide-m">${usd(a.landValue)}</td><td class="r hide-m">${usd(a.buildingOnlyValue)}</td></tr>`).join('')}</tbody>`);
+</script>
+</body>
+</html>

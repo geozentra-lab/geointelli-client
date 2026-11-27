@@ -4,6 +4,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Action, Store } from '@ngrx/store';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import {
+  EMPTY,
   Observable,
   catchError,
   concatMap,
@@ -32,9 +33,9 @@ export function crmError(error: unknown): string {
     return error.error.message;
   return apiError(error);
 }
-const reloadAction = (s: CrmState, collection: CrmCollection): Action => {
+const reloadAction = (s: CrmState, collection: CrmCollection, page?: number): Action => {
   const list = s[collection];
-  const page = Math.min(list.page, Math.max(0, list.totalPages - 1));
+  page ??= Math.min(list.page, Math.max(0, list.totalPages - 1));
   switch (collection) {
     case 'clients':
       return A.loadClients({ page });
@@ -51,6 +52,24 @@ export class CrmEffects extends SessionScopedEffects {
   private actions = inject(Actions);
   private service = inject(CrmService);
   private store = inject(Store);
+  /**
+   * A write can leave the page shown past the end (the last record of the last page was deleted,
+   * or moved out of the filter): an empty page after the first is read again one page back, until
+   * a page has records or the first is reached.
+   */
+  clampPage = createEffect(() =>
+    this.actions.pipe(
+      ofType(A.clientsLoaded, A.leadsLoaded, A.tasksLoaded, A.dealsLoaded),
+      withLatestFrom(this.store.select(selectCrm)),
+      mergeMap(([a, s]) => {
+        if (a.page.content.length || a.page.page === 0) return EMPTY;
+        const collection: CrmCollection =
+          a.type === A.clientsLoaded.type ? 'clients' : a.type === A.leadsLoaded.type ? 'leads' : a.type === A.tasksLoaded.type ? 'tasks' : 'deals';
+        const page = Math.max(0, Math.min(a.page.page - 1, a.page.totalPages - 1));
+        return of(reloadAction(s, collection, page));
+      }),
+    ),
+  );
   overview = createEffect(() =>
     this.actions.pipe(
       ofType(A.loadOverview),
@@ -70,20 +89,33 @@ export class CrmEffects extends SessionScopedEffects {
     this.actions.pipe(
       ofType(A.loadOptions),
       switchMap(() =>
+        // One list failing doesn't stop the others; the failed ones are named, so the form and the
+        // records say the list couldn't be read instead of "add a client first".
         forkJoin({
           clients: this.service.clients(0, 100).pipe(
             map((p) => p.content),
-            catchError(() => of([])),
+            catchError(() => of(null)),
           ),
           leads: this.service.leads(0, null, 100).pipe(
             map((p) => p.content),
-            catchError(() => of([])),
+            catchError(() => of(null)),
           ),
           deals: this.service.deals(0, null, 100).pipe(
             map((p) => p.content),
-            catchError(() => of([])),
+            catchError(() => of(null)),
           ),
-        }).pipe(map((options) => A.optionsLoaded(options))),
+        }).pipe(
+          map(({ clients, leads, deals }) =>
+            A.optionsLoaded({
+              clients: clients ?? [],
+              leads: leads ?? [],
+              deals: deals ?? [],
+              failed: (['clients', 'leads', 'deals'] as const).filter(
+                (k) => ({ clients, leads, deals })[k] === null,
+              ),
+            }),
+          ),
+        ),
       ),
     ),
   );

@@ -195,4 +195,17 @@ describe('Account type, onboarding and approval (SCRUM-204)', () => {
     expect(refreshNow).toHaveBeenCalledTimes(1);
     entitlementsRequest().flush(entitlementsFor('buyer'));
   });
+
+  it('never leaves the entitlements loading after a 403 the recheck skips (the area guards wait on them)', async () => {
+    store.dispatch(A.forbidden());
+    await vi.advanceTimersByTimeAsync(0);
+    entitlementsRequest().flush('down', { status: 500, statusText: 'Server Error' });
+    expect(state().entitlements.loading).toBe(false);
+    // A second 403 within 30 s sends nothing: the entitlements stay as they were, not "loading".
+    store.dispatch(A.forbidden());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshNow).toHaveBeenCalledTimes(1);
+    expect(state().entitlements.loading).toBe(false);
+    expect(state().entitlements.error).toBeTruthy();
+  });
 });

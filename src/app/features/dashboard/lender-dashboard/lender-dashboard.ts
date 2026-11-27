@@ -7,6 +7,7 @@ import { PageHeading } from '../../../shared/components/page-heading';
 import { TABLE_KIT } from '../../../shared/table';
 import { countOf, formatLocalDate, formatRecordDate, plainNote } from '../../../shared/data/format';
 import {
+  LENDER_STAGES,
   LOAN_TYPES,
   LTV_REASONS,
   LenderApplicationDTO,
@@ -18,7 +19,7 @@ import {
 } from '../../../core/models/lender';
 import { LenderDashboardActions as A } from '../../../store/lender-dashboard/lender-dashboard.actions';
 import { selectLenderDashboard } from '../../../store/lender-dashboard/lender-dashboard.selectors';
-import { Kpi, usdCompact } from '../dash-ui';
+import { Kpi, StageBars, StageRow, usdCompact } from '../dash-ui';
 import { MixBar, MixPart, OVERVIEW_STYLES, OverviewSection, shareText } from '../overview-ui';
 
 const WAITING: LenderApplicationStage[] = ['SUBMITTED', 'UNDER_REVIEW'];
@@ -31,11 +32,12 @@ const MIX_COLORS: Record<LenderLoanType, string | null> = {
   UNKNOWN: null,
 };
 const DISCLAIMER = 'Informational only; not a credit decision or approval.';
-const APPLICATIONS = { tab: 'applications' };
 
 /**
- * Lender overview (DESIGN.md §8): the lead is "Waiting for review", the Submitted and Under review
- * applications, oldest update first, with their LTV, and a way into Applications; then two columns:
+ * Lender overview (DESIGN.md §8; SOW IV "Bank/Lender"): the lead is "Waiting for review", the
+ * Submitted and Under review applications, oldest update first, with their LTV, and a way into
+ * Applications; then the pipeline by stage (count and requested amount of every stage, from the
+ * pipeline the lead already reads; a stage opens Applications filtered on it); then two columns:
  * approved and funded this month (the approved-funded card, with its period) and the funded loan
  * mix as a segmented bar with its table twin (an unknown loan type is the hatched part).
  *
@@ -54,6 +56,7 @@ const APPLICATIONS = { tab: 'applications' };
     PageHeading,
     Kpi,
     MixBar,
+    StageBars,
     OverviewSection,
     ...TABLE_KIT,
   ],
@@ -85,7 +88,7 @@ const APPLICATIONS = { tab: 'applications' };
       [busy]="(d().pipeline.loading && !!p) || (d().recent.loading && !!recent)"
     >
       @if (tableShown()) {
-        <a actions class="btn primary" routerLink="/loan-review" [queryParams]="applications"
+        <a actions class="btn primary" routerLink="/loan-review" [queryParams]="applications()"
           >Open Applications</a
         >
       }
@@ -112,7 +115,7 @@ const APPLICATIONS = { tab: 'applications' };
       } @else if (!waitingTotal()) {
         <div class="ov-empty">
           <p>No applications waiting.</p>
-          <a class="btn primary" routerLink="/loan-review" [queryParams]="applications"
+          <a class="btn primary" routerLink="/loan-review" [queryParams]="applications()"
             >New application</a
           >
         </div>
@@ -122,7 +125,7 @@ const APPLICATIONS = { tab: 'applications' };
             None of the {{ recent.content.length }} newest applications, which is all the overview
             receives, is waiting. Applications lists the ones that are: {{ stageCounts() }}.
           </p>
-          <a class="btn primary" routerLink="/loan-review" [queryParams]="applications"
+          <a class="btn primary" routerLink="/loan-review" [queryParams]="applications()"
             >Open Applications</a
           >
         </div>
@@ -194,6 +197,42 @@ const APPLICATIONS = { tab: 'applications' };
       }
     </section>
     @if (!noOrg() && d().organizationId !== null) {
+      <section
+        gz-overview-section
+        #pipelineSection
+        class="ld-pipeline"
+        heading="Pipeline by stage"
+        [caption]="pipelineCaption()"
+        [busy]="d().pipeline.loading && !!p"
+      >
+        <a actions class="ov-link" routerLink="/loan-review" [queryParams]="pipelineLink()">Open Pipeline</a>
+        @if (d().pipeline.error) {
+          <div class="insight danger ov-alert" role="alert">
+            <span>The pipeline could not load.</span>
+            <button type="button" class="btn small" (click)="pipelineSection.retried(); load()">Retry</button>
+          </div>
+        } @else if (!p) {
+          @for (i of skeleton; track i) {
+            <div class="row-skeleton" aria-hidden="true"></div>
+          }
+        } @else if (!p.total) {
+          <p class="ov-text">Applications appear here by stage, with the amounts requested.</p>
+        } @else {
+          <div class="ld-stages">
+            <gz-stage-bars
+              [rows]="stageRows()"
+              link="/loan-review"
+              param="stage"
+              [query]="applications()"
+              label="Applications by stage"
+            />
+          </div>
+          <p class="ov-note">
+            Each application is counted once, in its current stage, with the amount it requests. A
+            stage opens Applications filtered on it.
+          </p>
+        }
+      </section>
       <div class="ov-cols">
         <section
           gz-overview-section
@@ -394,6 +433,12 @@ const APPLICATIONS = { tab: 'applications' };
         display: block;
         margin: var(--sp-4) 0 var(--sp-12);
       }
+      .ld-pipeline {
+        margin-top: var(--sp-24);
+      }
+      .ld-stages {
+        max-width: 760px;
+      }
       .ld-swatch {
         display: inline-block;
         width: 12px;
@@ -419,7 +464,16 @@ export class LenderDashboard {
   /** Backend notes without developer field names (DESIGN.md §13). */
   readonly plainNote = plainNote;
   readonly d = this.w.store.selectSignal(selectLenderDashboard);
-  readonly applications = APPLICATIONS;
+  /**
+   * Into Loan review on the organization chosen here (?org=, applied there and taken out of the
+   * address): Loan review keeps its own choice, the first organization on a first visit.
+   */
+  private readonly org = computed((): Record<string, string> => {
+    const id = this.d().organizationId;
+    return id === null ? {} : { org: String(id) };
+  });
+  readonly applications = computed(() => ({ tab: 'applications', ...this.org() }));
+  readonly pipelineLink = this.org;
   readonly skeleton = [0, 1, 2];
   readonly countOf = countOf;
   readonly noOrg = computed(() => this.d().organizations.value?.length === 0);
@@ -453,6 +507,29 @@ export class LenderDashboard {
     );
   });
   /** Each waiting stage as the pipeline sends it: count and requested amount (never summed). */
+  /**
+   * Every stage in pipeline order, with its count and requested amount; lost stages muted. A stage
+   * with no application requests $0; one with applications but no amount sent is Unavailable.
+   */
+  readonly stageRows = computed<StageRow[]>(() => {
+    const st = this.d().pipeline.value?.stages ?? {};
+    return LENDER_STAGES.map((stage) => {
+      const count = st[stage]?.count ?? 0;
+      return {
+        key: stage,
+        label: lenderStageLabels[stage],
+        count,
+        amount: count ? (st[stage]?.requestedAmount ?? null) : 0,
+        muted: stage === 'REJECTED' || stage === 'WITHDRAWN',
+      };
+    });
+  });
+  readonly pipelineCaption = computed(() => {
+    const p = this.d().pipeline.value;
+    if (!p || !p.total || this.d().pipeline.error) return '';
+    const asOf = formatRecordDate(p.asOf);
+    return `${countOf(p.total, 'application')} · requested amounts in ${p.currency}${asOf ? ' · as of ' + asOf : ''}`;
+  });
   readonly waitingCaption = computed(() => {
     const st = this.d().pipeline.value?.stages;
     if (!st || !this.waitingTotal() || this.d().pipeline.error) return '';

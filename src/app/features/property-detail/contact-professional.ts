@@ -65,8 +65,8 @@ import {
                 }
               </select>
               <p class="smalltext muted">
-                Registered accounts. Being listed does not verify a licence or mean they represent
-                this property.
+                Realtors whose Florida license GeoZentra has verified. Being listed does not mean
+                they represent this property.
               </p>
             </div>
             <div class="formfield">

@@ -57,20 +57,16 @@ describe('Backend master 0f60963 contracts', () => {
         (r) => r.url.endsWith('/dashboards/user/activity') && r.params.get('limit') === '6',
       )
       .flush({});
-    dashboards.investorValueEquityDebt(5).subscribe();
+    // The four investor cards in one request; all portfolios when no portfolioId is sent.
+    dashboards.investorDashboard(5).subscribe();
     http
       .expectOne(
-        (r) =>
-          r.url.endsWith('/dashboards/investor/value-equity-debt') &&
-          r.params.get('portfolioId') === '5',
+        (r) => r.url.endsWith('/dashboards/investor') && r.params.get('portfolioId') === '5',
       )
       .flush({});
-    dashboards.investorOccupancyExposure(null).subscribe();
+    dashboards.investorDashboard(null).subscribe();
     http
-      .expectOne(
-        (r) =>
-          r.url.endsWith('/dashboards/investor/occupancy-exposure') && r.params.keys().length === 0,
-      )
+      .expectOne((r) => r.url.endsWith('/dashboards/investor') && r.params.keys().length === 0)
       .flush({});
 
     TestBed.inject(LenderService).approvedFunded(42, '2026-10-01', '2026-10-31').subscribe();
@@ -207,21 +203,29 @@ describe('Backend master 0f60963 contracts', () => {
     expect(error).toBe(message);
   });
 
-  it('a retried revaluation is listed first and the failed one stays as it was', () => {
-    store.dispatch(A.loadRefreshRequests({ status: null, page: 0 }));
+  it('a retried revaluation is listed first, and counted, only where it belongs; the failed one stays', () => {
     const failed = { requestId: 'old', status: 'FAILED', triggerType: 'SALE_CHANGE' };
-    http
-      .expectOne((r) => r.url.endsWith('/admin/valuation-refresh-requests'))
-      .flush({ content: [failed], page: 0, size: 20, totalElements: 1, totalPages: 1 });
-    store.dispatch(A.retryRefresh({ id: 'old', idempotencyKey: 'k' }));
-    http
-      .expectOne((r) => r.url.endsWith('/old/retry'))
-      .flush({ requestId: 'new', status: 'PENDING', triggerType: 'SALE_CHANGE' });
-    let ids: string[] = [];
-    store
-      .select(selectAdmin)
-      .subscribe((s) => (ids = s.refreshes.value!.content.map((r) => r.requestId)));
-    expect(ids).toEqual(['new', 'old']);
+    let s!: ReturnType<typeof selectAdmin>;
+    store.select(selectAdmin).subscribe((v) => (s = v));
+    const ids = () => s.refreshes.value!;
+    const retryUnder = (status: 'FAILED' | null) => {
+      store.dispatch(A.loadRefreshRequests({ status, page: 0 }));
+      http
+        .expectOne((r) => r.url.endsWith('/admin/valuation-refresh-requests'))
+        .flush({ content: [failed], page: 0, size: 20, totalElements: 1, totalPages: 1 });
+      store.dispatch(A.retryRefresh({ id: 'old', idempotencyKey: 'k' }));
+      http
+        .expectOne((r) => r.url.endsWith('/old/retry'))
+        .flush({ requestId: 'new', status: 'PENDING', triggerType: 'SALE_CHANGE' });
+    };
+    // Under "Failed" the new Pending request is not slipped in.
+    retryUnder('FAILED');
+    expect(ids().content.map((r) => r.requestId)).toEqual(['old']);
+    expect(ids().totalElements).toBe(1);
+    // Under all statuses it is listed first, and counted.
+    retryUnder(null);
+    expect(ids().content.map((r) => r.requestId)).toEqual(['new', 'old']);
+    expect(ids().totalElements).toBe(2);
   });
 
   it('each typeahead keeps its own results; a newer query cancels only its own request', async () => {

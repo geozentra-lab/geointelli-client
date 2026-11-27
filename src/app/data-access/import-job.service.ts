@@ -1,6 +1,10 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { environment } from '../../environments/environment';
+import { WRITE_TIMEOUT } from '../core/interceptors/error.interceptor';
+
+/** An upload (up to 1 GB) is answered once the server has the whole file: 30 minutes, not 30 s. */
+const UPLOAD = () => ({ context: new HttpContext().set(WRITE_TIMEOUT, 30 * 60_000) });
 import { ImportJobDTO, ImportJobPageDTO } from '../core/models/import-job';
 /** Admin import jobs and CSV ingestion (realm role "admin"). */
 @Injectable({ providedIn: 'root' })
@@ -25,7 +29,7 @@ export class ImportJobService {
     body.append('file', file, file.name);
     body.append('county', county);
     body.append('sourceState', sourceState);
-    return this.http.post<ImportJobDTO>(`${this.ingestion}/${encodeURIComponent(dataset)}`, body);
+    return this.http.post<ImportJobDTO>(`${this.ingestion}/${encodeURIComponent(dataset)}`, body, UPLOAD());
   }
   /** owners.csv and property_owner.csv load together in one transaction. */
   importOwners(owners: File, propertyOwners: File, county: string, sourceState: string) {
@@ -34,7 +38,7 @@ export class ImportJobService {
     body.append('propertyOwnersFile', propertyOwners, propertyOwners.name);
     body.append('county', county);
     body.append('sourceState', sourceState);
-    return this.http.post<ImportJobDTO>(`${this.ingestion}/owners`, body);
+    return this.http.post<ImportJobDTO>(`${this.ingestion}/owners`, body, UPLOAD());
   }
   /** A whole county folder: files named as in a county export (properties.csv, sales.csv...). */
   importFolder(files: File[], county: string, sourceState: string) {
@@ -42,6 +46,6 @@ export class ImportJobService {
     for (const f of files) body.append('files', f, f.name);
     body.append('county', county);
     body.append('sourceState', sourceState);
-    return this.http.post<ImportJobDTO>(`${this.ingestion}/folder`, body);
+    return this.http.post<ImportJobDTO>(`${this.ingestion}/folder`, body, UPLOAD());
   }
 }

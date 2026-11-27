@@ -43,6 +43,8 @@ const initial = {
     leads: [] as CrmLeadDTO[],
     deals: [] as CrmTransactionDTO[],
     loaded: false,
+    /** Some list could not be read: pickers and names may be missing records (Retry in the form). */
+    failed: false,
   },
   /** The single history panel that is open, keyed `SUBJECT:id`. */
   history: {
@@ -94,10 +96,21 @@ export const crmReducer = createReducer<CrmState>(
     overviewLoading: false,
   })),
   on(A.overviewFailed, (s, { error }) => ({ ...s, overviewLoading: false, overviewError: error })),
-  on(A.optionsLoaded, (s, options) => ({
-    ...s,
-    options: { clients: options.clients, leads: options.leads, deals: options.deals, loaded: true },
-  })),
+  on(A.optionsLoaded, (s, options) => {
+    const failed = options.failed ?? [];
+    const keep = <K extends 'clients' | 'leads' | 'deals'>(k: K) =>
+      failed.includes(k) ? s.options[k] : options[k];
+    return {
+      ...s,
+      options: {
+        clients: keep('clients'),
+        leads: keep('leads'),
+        deals: keep('deals'),
+        loaded: true,
+        failed: failed.length > 0,
+      },
+    };
+  }),
   on(A.loadClients, (s, { page }) => loading(s, 'clients', page, null)),
   on(A.loadLeads, (s, { page, stage }) => loading(s, 'leads', page, stage)),
   on(A.loadTasks, (s, { page, status }) => loading(s, 'tasks', page, status)),

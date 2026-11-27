@@ -5,7 +5,6 @@ import { provideRouter } from '@angular/router';
 import { Store } from '@ngrx/store';
 import { provideTestStore } from '../store';
 import { ComparableService } from './comparable.service';
-import { DashboardService } from './dashboard.service';
 import { ImportJobService } from './import-job.service';
 import { MapLayerService } from './map-layer.service';
 import { PropertyService } from './property.service';
@@ -51,18 +50,6 @@ describe('Backend master endpoints the client now uses', () => {
     const results = http.expectOne((r) => r.url.endsWith('/saved-searches/9/results'));
     expect(results.request.params.get('size')).toBe('8');
     results.flush({});
-
-    const dashboards = TestBed.inject(DashboardService);
-    dashboards.affordability({ annualGrossIncome: 120000, downPayment: 0 }).subscribe();
-    const aff = http.expectOne((r) => r.url.endsWith('/dashboards/user/affordability'));
-    // Zero is a real input; missing inputs are left out, never sent as zero.
-    expect(aff.request.params.get('downPayment')).toBe('0');
-    expect(aff.request.params.has('monthlyDebtPayments')).toBe(false);
-    aff.flush({});
-    dashboards.mortgageContext().subscribe();
-    const mortgage = http.expectOne((r) => r.url.endsWith('/dashboards/lender/mortgage-context'));
-    expect(mortgage.request.params.keys()).toEqual([]);
-    mortgage.flush({});
 
     TestBed.inject(MapLayerService).layers().subscribe();
     http.expectOne((r) => r.url.endsWith('/map/layers')).flush([]);

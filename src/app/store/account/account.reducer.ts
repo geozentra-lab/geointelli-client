@@ -45,7 +45,9 @@ export const initialAccount: AccountState = {
 
 export const accountReducer = createReducer<AccountState>(
   initialAccount,
-  on(A.loadEntitlements, A.tokenRefreshed, A.refreshToken, A.forbidden, (s) => ({
+  // Not on Forbidden: its effect asks again at most every 30 s (and never for a guest), so a second
+  // 403 sent no request and left the entitlements loading for good, and the area guards waited.
+  on(A.loadEntitlements, A.tokenRefreshed, A.refreshToken, (s) => ({
     ...s,
     entitlements: pending(s.entitlements),
   })),

@@ -567,30 +567,6 @@ export interface AlertsCard extends DashboardCard {
     updatedAt: string;
   })[];
 }
-/**
- * GET /api/dashboards/user/affordability: the affordability calculator on the inputs the caller
- * supplies. Nothing is assumed: without the required inputs the card is INCOMPLETE.
- */
-export interface AffordabilityCardDTO {
-  scope: string;
-  generatedAt: string;
-  status: 'OK' | 'INCOMPLETE' | 'ERROR' | string;
-  error: string | null;
-  missingInputs: string[];
-  affordability: AffordabilityResponse | null;
-}
-/**
- * GET /api/dashboards/lender/mortgage-context: the mortgage calculator on supplied inputs, with the
- * rate source disclosed. UNAVAILABLE when no input is supplied; no live rate feed is used.
- */
-export interface MortgageContextCardDTO {
-  scope: string;
-  generatedAt: string;
-  status: 'OK' | 'UNAVAILABLE' | 'ERROR' | string;
-  error: string | null;
-  assumptions: { annualInterestRate: number; loanTermYears: number; rateSource: string } | null;
-  mortgage: MortgageResponse | null;
-}
 export interface SchoolContextDTO {
   propertyId: number;
   status: 'AVAILABLE' | 'NO_NEARBY_RESULTS' | 'NO_COVERAGE';

@@ -10,7 +10,6 @@ import { LocationsActions } from '../../store/locations/locations.actions';
 import { savedSearchesActions } from '../../store/saved-searches/saved-searches.actions';
 import { ValuationActions } from '../../store/valuation/valuation.actions';
 import { ExploreMapActions } from '../../store/explore-map/explore-map.actions';
-import { UiActions } from '../../store/ui/ui.actions';
 import { UserActions } from '../../store/user/user.actions';
 import { KeycloakService } from '../../core/auth/keycloak.service';
 import { Page, PropertySearchItem } from '../../core/models/api';
@@ -123,7 +122,8 @@ describe('Explore', () => {
   const searches = () => of<ReturnType<typeof CatalogActions.search>>(CatalogActions.search.type);
   const button = (el: HTMLElement, text: string) =>
     [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent!.trim() === text)!;
-  beforeEach(() => (auth.loggedIn = false));
+  // Explore needs an account (the backend answers 401 to a guest): signed in unless a test says not.
+  beforeEach(() => (auth.loggedIn = true));
 
   it('opens on the map with a state to choose, and searches that state when one is picked', async () => {
     const { el } = await setup();
@@ -285,16 +285,16 @@ describe('Explore', () => {
     expect(of(LocationsActions.loadStates.type)).toHaveLength(1);
   });
 
-  it('asks guests to sign in before saving a search', async () => {
-    const { fixture, el } = await setup(page([FULL]));
-    button(el, 'Save search').click();
-    fixture.detectChanges();
-    expect(of(UiActions.toast.type)).toHaveLength(1);
-    expect(el.querySelector('#save-search')).toBeNull();
+  it('asks a guest to sign in instead of the page, and sends nothing', async () => {
+    auth.loggedIn = false;
+    const { el } = await setup();
+    expect(el.querySelector('h1')!.textContent).toContain('Sign in to explore properties');
+    expect(el.querySelector('gz-county-picker')).toBeNull();
+    expect(of(LocationsActions.loadStates.type)).toHaveLength(0);
+    expect(searches()).toHaveLength(0);
   });
 
   it('saves a named search and says why it cannot save without a name', async () => {
-    auth.loggedIn = true;
     const { fixture, el } = await setup(page([FULL]));
     const save = button(el, 'Save search');
     save.click();

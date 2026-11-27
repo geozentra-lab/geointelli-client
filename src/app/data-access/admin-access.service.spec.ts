@@ -42,6 +42,12 @@ describe('AdminAccessService', () => {
       rejectionReason: 'Expired',
     });
 
+    api.searchUsers('jane do').subscribe();
+    const search = http.expectOne((r) => r.url === base + '/users/search');
+    expect(search.request.method).toBe('GET');
+    expect(search.request.params.toString()).toBe('q=jane%20do&size=10');
+    search.flush([]);
+
     api.roleGrants(7).subscribe();
     expect(http.expectOne(base + '/users/7/role-grants').request.method).toBe('GET');
     api.revokeRole(7, 'realtor', 'Left the brokerage').subscribe();

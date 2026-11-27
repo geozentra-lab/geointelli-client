@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "angular-best-practices-material": {
+      "source": "alfredoperez/angular-best-practices",
+      "sourceType": "github",
+      "skillPath": "skills/angular-best-practices-material/SKILL.md",
+      "computedHash": "228af942474dea311d22bed4791afc4e5eda14377cef2c838f9f53db9d148c19"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "106acf230014cbb43ca34e6410371321b56ca742f9ee0442e8ec05bf02eb0384"
+    }
+  }
+}

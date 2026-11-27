@@ -173,12 +173,12 @@ describe('Overviews: home and professional areas', () => {
       return fixture.nativeElement as HTMLElement;
     }
 
-    it('leads with overdue and due tasks, then deals and leads by stage, and asks for the license', () => {
+    it('leads with overdue and due tasks, then clients and leads, deals by stage, the newest leads and activity', () => {
       const el = realtor();
       const lead = section(el, 'Overdue and due this week');
       // The lead comes first: no summary tiles above it, and no consumer cards anywhere.
       expect(el.querySelector('section.overview-section')).toBe(lead);
-      expect(el.querySelectorAll('.kpi-value').length).toBe(0);
+      expect(lead.querySelectorAll('.kpi-value').length).toBe(0);
       expect(text(lead)).toContain('2 overdue · 3 due in the next 7 days');
       const rows = rowsOf(lead);
       expect(rows[0]).toContain('Call seller');
@@ -191,17 +191,28 @@ describe('Overviews: home and professional areas', () => {
       expect(text(lead)).toContain('Mark tasks done in Tasks.');
       expect(lead.querySelector('tbody a')!.getAttribute('href')).toBe('/crm/tasks');
 
+      // Clients and leads: the card's own counts (SOW: new leads, active clients), never summed here.
+      const people = section(el, 'Clients and leads');
+      expect(kpiValues(people)).toEqual(['14', '6', '4']);
+      expect(text(people)).toContain('9 leads, 6 open');
+      const fresh = [...people.querySelectorAll<HTMLAnchorElement>('.stages a')].find((a) =>
+        a.textContent!.includes('New'),
+      )!;
+      expect(fresh.getAttribute('href')).toBe('/crm/leads?stage=NEW');
+      const newLeads = [...people.querySelectorAll<HTMLAnchorElement>('.kpi-link')].find(
+        (a) => a.textContent!.trim() === 'New leads',
+      )!;
+      expect(newLeads.getAttribute('href')).toBe('/crm/leads?stage=NEW');
+
       const pipeline = section(el, 'Pipeline by stage');
       expect(text(pipeline)).toContain('6 deals, 5 in progress');
       const offer = [...pipeline.querySelectorAll<HTMLAnchorElement>('.stages a')].find((a) =>
         a.textContent!.includes('Offer'),
       )!;
       expect(offer.getAttribute('href')).toBe('/crm/deals?stage=OFFER');
-      const fresh = [...pipeline.querySelectorAll<HTMLAnchorElement>('.stages a')].find((a) =>
-        a.textContent!.includes('New'),
-      )!;
-      expect(fresh.getAttribute('href')).toBe('/crm/leads?stage=NEW');
-      expect(text(pipeline)).toContain('9 leads, 6 open');
+
+      // The card's newest leads are already loaded: none here, so one sentence.
+      expect(text(section(el, 'Newest leads'))).toContain('New leads appear here first');
 
       const activity = section(el, 'Recent activity');
       expect(text(activity)).toContain('Notes, stage changes and new clients, leads and deals will appear here.');
@@ -210,6 +221,30 @@ describe('Overviews: home and professional areas', () => {
       expect(text(el)).not.toContain('Affordability');
       // Without a license submission the overview asks for one.
       expect(text(el)).toContain('Verify your license');
+    });
+
+    it('lists the newest leads from the card, each opening its record', () => {
+      const http = signedIn();
+      const fixture = TestBed.createComponent(RealtorDashboard);
+      fixture.detectChanges();
+      http.expectOne((r) => r.url.endsWith('/dashboards/realtor/clients-leads')).flush({
+        ...clientsLeads,
+        leads: {
+          ...clientsLeads.leads,
+          recent: [
+            { id: 51, clientId: 8, clientName: 'Marisol Etienne', propertyId: 42, title: 'Coral Way condo', source: 'CONTACT_REQUEST', stage: 'NEW', createdAt: '2026-11-15T14:00:00Z' },
+          ],
+        },
+      });
+      failRest(http);
+      fixture.detectChanges();
+      const newest = section(fixture.nativeElement, 'Newest leads');
+      expect(text(newest)).toContain('1 newest of 9');
+      const row = newest.querySelector('tbody tr')!;
+      expect(row.querySelector('a')!.textContent!.trim()).toBe('Coral Way condo');
+      expect(text(row)).toContain('Marisol Etienne · Contact request');
+      expect(rowsOf(newest)[0]).toMatch(/\| New \| Nov 15$/);
+      expect(newest.querySelector('tbody a')!.getAttribute('href')).toBe('/crm/leads?open=51');
     });
 
     it('a failed task card says so, and Retry moves focus to the section heading', () => {
@@ -372,7 +407,26 @@ describe('Overviews: home and professional areas', () => {
       expect(text(lead)).toContain('not a credit decision');
       const open = lead.querySelector<HTMLAnchorElement>('a.btn.primary')!;
       expect(open.textContent!.trim()).toBe('Open Applications');
-      expect(open.getAttribute('href')).toBe('/loan-review?tab=applications');
+      // On the organization chosen here (Loan review keeps its own choice otherwise).
+      expect(open.getAttribute('href')).toBe('/loan-review?tab=applications&org=42');
+
+      // SOW: pipeline volume. Every stage with its count and requested amount, from the pipeline the
+      // lead already read (no second request); a stage opens Applications filtered on it.
+      const pipeline = section(el, 'Pipeline by stage');
+      expect(text(pipeline)).toContain('4 applications · requested amounts in USD · as of Nov 16');
+      const stages = [...pipeline.querySelectorAll<HTMLAnchorElement>('.stages a')];
+      const cells = (a: Element) =>
+        ['.stage-name', '.stage-count', '.stage-amount'].map((c) => text(a.querySelector(c)!).trim()).join(' ');
+      expect(stages.map(cells)).toEqual([
+        'Draft 1 $100K',
+        'Submitted 2 $500K',
+        'Under review 1 $300K',
+        'Approved 0 $0',
+        'Funded 1 $250K',
+        'Rejected 0 $0',
+        'Withdrawn 0 $0',
+      ]);
+      expect(stages[1].getAttribute('href')).toBe('/loan-review?tab=applications&org=42&stage=SUBMITTED');
 
       expect(kpiValues(el)).toEqual(['$250K', '$240K']);
       const funded = section(el, 'Approved and funded this month');
@@ -572,7 +626,7 @@ describe('Overviews: home and professional areas', () => {
       expect(text(lead)).toContain('No applications waiting.');
       const create = lead.querySelector<HTMLAnchorElement>('a.btn.primary')!;
       expect(create.textContent!.trim()).toBe('New application');
-      expect(create.getAttribute('href')).toBe('/loan-review?tab=applications');
+      expect(create.getAttribute('href')).toBe('/loan-review?tab=applications&org=42');
       expect(text(section(el, 'Approved and funded this month'))).toContain(
         'No application was approved or funded this month.',
       );
@@ -629,6 +683,108 @@ describe('Overviews: home and professional areas', () => {
       counties: [],
     };
 
+    const incomeCard = (over: object = {}) => ({
+      scope: 'ALL_PORTFOLIOS',
+      portfolioId: null,
+      portfolioCount: 2,
+      status: 'OK',
+      error: null,
+      generatedAt: '2026-11-16T09:00:00Z',
+      currency: 'USD',
+      period: { fromMonth: '2025-11', toMonth: '2026-10', fromDate: '2025-11-01', toDate: '2026-10-31', months: 12, timeZone: 'UTC' },
+      totalHoldings: 5,
+      actual: {
+        basis: 'ACTUAL_RECORDED_CASH',
+        status: 'RECORDED',
+        income: 40500,
+        expenses: 14000,
+        cashFlow: 26500,
+        recordCount: 38,
+        holdingsWithRecords: 2,
+        holdingsWithoutRecords: 3,
+        categories: [
+          { category: 'REPAIRS', type: 'EXPENSE', amount: 14000, recordCount: 6 },
+          { category: 'RENT', type: 'INCOME', amount: 40500, recordCount: 32 },
+        ],
+        expenseCategoriesWithoutRecords: ['INSURANCE', 'PROPERTY_TAX'],
+        recordsUpdatedAt: '2026-11-03T12:00:00',
+      },
+      projected: {
+        basis: 'CONTRACT_RENT_INVESTMENT_CALCULATION',
+        status: 'AVAILABLE',
+        rentedHoldings: 2,
+        holdingsWithRent: 2,
+        monthlyGrossRent: 3500,
+        annualGrossRent: 42000,
+        periodGrossRent: 42000,
+        grossYieldPercent: 8.4,
+        netOperatingIncome: null,
+        missingInputs: [],
+        reason: null,
+      },
+      note: null,
+      ...over,
+    });
+    const opportunity = (propertyId: number, over: object = {}) => ({
+      propertyId,
+      folio: '30493400402' + propertyId,
+      address: propertyId + ' SW 27th Ter',
+      city: 'Miami',
+      zip: '33133',
+      countyName: 'Miami-Dade',
+      stateCode: 'FL',
+      score: 44.49,
+      maxScore: 100,
+      coveragePercent: 50,
+      estimatedValue: 525636.5,
+      forecastGrowth1yPct: 10.32,
+      factors: [],
+      valuationDataThrough: '2026-07-26',
+      scoredAt: '2026-11-08T20:00:00Z',
+      alreadyHeld: false,
+      ...over,
+    });
+    const opportunitiesCard = (over: object = {}) => ({
+      scope: 'ALL_PORTFOLIOS',
+      portfolioId: null,
+      portfolioCount: 2,
+      status: 'OK',
+      error: null,
+      generatedAt: '2026-11-16T09:00:00Z',
+      scoreVersion: 'opportunity-v1',
+      candidateStatus: 'OK',
+      countyId: null,
+      stateId: null,
+      limit: 5,
+      totalCandidates: 416226,
+      items: [opportunity(42), opportunity(43, { alreadyHeld: true, estimatedValue: null, forecastGrowth1yPct: null })],
+      notes: [],
+      note: null,
+      ...over,
+    });
+    /** GET /dashboards/investor: the four cards of one scope, each overridable. */
+    const dashboard = (portfolioId: number | null, cards: Record<string, unknown> = {}) => ({
+      scope: portfolioId === null ? 'ALL_PORTFOLIOS' : 'PORTFOLIO',
+      portfolioId,
+      portfolioCount: portfolioId === null ? 2 : 1,
+      status: 'OK',
+      failedCards: [],
+      generatedAt: '2026-11-16T09:00:00Z',
+      period: incomeCard().period,
+      valueEquityDebt: valueCard({ portfolioId }),
+      incomeExpensesReturns: incomeCard({ portfolioId }),
+      occupancyExposure: { ...occupancyCard, portfolioId },
+      opportunities: opportunitiesCard({ portfolioId }),
+      note: null,
+      ...cards,
+    });
+    const dashboardRequest = (http: HttpTestingController, portfolioId: number | null) =>
+      http.expectOne(
+        (r) =>
+          r.url.endsWith('/dashboards/investor') &&
+          (portfolioId === null ? !r.params.has('portfolioId') : r.params.get('portfolioId') === String(portfolioId)),
+      );
+
     it('without a portfolio, offers to create one and shows no figures', () => {
       const http = signedIn();
       const fixture = TestBed.createComponent(InvestorDashboard);
@@ -639,10 +795,10 @@ describe('Overviews: home and professional areas', () => {
       const el = fixture.nativeElement as HTMLElement;
       expect(text(el)).toContain('Create a portfolio');
       expect(el.querySelectorAll('.kpi-value').length).toBe(0);
-      expect(http.match((r) => r.url.includes('/summary')).length).toBe(0);
+      expect(el.querySelector('section.overview-section h2')!.textContent!.trim()).toBe('Portfolio');
     });
 
-    it('leads with the summary strip, labels partial figures and offers the action that raises coverage', () => {
+    it('reads the four cards in one request, labels partial figures and offers the action that raises coverage', () => {
       const http = signedIn();
       const fixture = TestBed.createComponent(InvestorDashboard);
       fixture.detectChanges();
@@ -654,14 +810,9 @@ describe('Overviews: home and professional areas', () => {
             { id: 2, name: 'Keys', holdingCount: 2 },
           ]),
         );
-      // No portfolioId: the cards cover all of them.
-      http
-        .expectOne((r) => r.url.endsWith('/value-equity-debt') && !r.params.has('portfolioId'))
-        .flush(valueCard());
-      http
-        .expectOne((r) => r.url.endsWith('/occupancy-exposure') && !r.params.has('portfolioId'))
-        .flush(occupancyCard);
-      // Income and expenses are per portfolio: none is asked for while all are in view.
+      // One request for the scope (no portfolioId: all of them), not one per card.
+      expect(http.match((r) => r.url.includes('/dashboards/investor/')).length).toBe(0);
+      dashboardRequest(http, null).flush(dashboard(null));
       expect(http.match((r) => r.url.includes('/summary')).length).toBe(0);
       failRest(http);
       fixture.detectChanges();
@@ -669,7 +820,7 @@ describe('Overviews: home and professional areas', () => {
       const lead = section(el, 'All portfolios');
       expect(el.querySelector('section.overview-section')).toBe(lead);
       // A partial total says so, and is never shown as the whole portfolio's value.
-      expect(kpiValues(el)).toEqual(['$1.20M', '$400K', '$500K', '67%']);
+      expect(kpiValues(lead)).toEqual(['$1.20M', '$400K', '$500K']);
       expect(text(lead)).toContain('Partial: 3 of 5 holdings valued');
       expect(text(lead)).toContain('Partial: 3 of 5 holdings with a known balance');
       expect(text(lead)).toContain('Partial: 2 of 5 holdings with value and debt');
@@ -678,26 +829,56 @@ describe('Overviews: home and professional areas', () => {
       const action = lead.querySelector<HTMLAnchorElement>('a.btn.primary')!;
       expect(action.textContent!.trim()).toBe('Add balances in Portfolio');
       expect(action.getAttribute('href')).toBe('/portfolio');
-      expect(text(section(el, 'Occupancy'))).toContain('2 of 3 rental holdings rented');
-      expect(text(section(el, 'Occupancy'))).toContain('Occupancy is recorded for 4 of them');
+      const occupancy = section(el, 'Occupancy');
+      expect(kpiValues(occupancy)).toEqual(['67%']);
+      expect(text(occupancy)).toContain('2 of 3 rental holdings rented');
+      expect(text(occupancy)).toContain('Occupancy is recorded for 4 of them');
       // Bars are drawn against every holding (Rented 2 of 5), not against the largest status.
-      const rented = section(el, 'Occupancy').querySelector<HTMLElement>('tbody tr .iv-bar i')!;
+      const rented = occupancy.querySelector<HTMLElement>('tbody tr .iv-bar i')!;
       expect(rented.style.width).toBe('40%');
       // The all-portfolios count is the card's own, not a sum of the listed portfolios.
       expect(el.querySelector('#dash-portfolio option')!.textContent!.trim()).toBe('All portfolios · 5 holdings');
-      expect(text(section(el, 'Cash flow'))).toContain('Choose one portfolio');
+
+      // Income and returns now covers every portfolio: no "choose one portfolio" any more.
+      const income = section(el, 'Income and returns');
+      expect(text(income)).toContain('Nov 2025 to Oct 2026 · 38 records');
+      expect(kpiValues(income)).toEqual(['$41K', '$14K', '+$27K', '$3,500', '$42K', '8.4%']);
+      expect(text(income)).toContain('From records on 2 of 5 holdings');
+      expect(text(income)).not.toContain('Partial:');
+      // Income first, signed; expenses with a true minus.
+      expect(rowsOf(income)).toEqual([
+        'Rent Income | Income | 32 | +$40,500',
+        'Repairs Expense | Expense | 6 | −$14,000',
+      ]);
+      // An expense category without a record is a missing cost, never $0.
+      expect(text(income)).toContain('No record of insurance, property tax: a missing cost, not a cost of $0.');
+      // Contract rent is kept apart from the recorded cash.
+      expect(text(income)).toContain('2 of 2 rented holdings with a lease rent');
+      expect(text(income)).toContain('never added to it');
+
+      // Opportunities: the stored scores, best first, holdings marked, each opening its property.
+      const opp = section(el, 'Opportunities');
+      expect(text(opp)).toContain('Top 2 of 416,226 scored properties');
+      const rows = rowsOf(opp);
+      const first = opp.querySelector('tbody tr')!;
+      expect(first.querySelector('a')!.textContent!.trim()).toBe('42 SW 27th Ter');
+      expect(text(first)).toContain('Miami, Miami-Dade County, FL');
+      expect(rows[0]).toMatch(/^1 \| .* \| 44\.5Evidence covers 50 of 100 \| \$526K \| \+10\.3%$/);
+      expect(rows[1]).toContain('In your portfolio');
+      expect(rows[1]).toContain('Unavailable');
+      expect(opp.querySelector('tbody a')!.getAttribute('href')).toBe('/property/42');
+      expect(opp.querySelector('a.ov-link')!.getAttribute('href')).toBe('/opportunities');
 
       const select = el.querySelector<HTMLSelectElement>('#dash-portfolio')!;
       select.value = '2';
       select.dispatchEvent(new Event('change'));
       fixture.detectChanges();
       // Another scope never shows the previous one's figures: the strip waits.
-      expect(el.querySelectorAll('.kpi-value.skeleton').length).toBe(3);
+      expect(el.querySelectorAll('section.overview-section')[0].querySelectorAll('.kpi-value.skeleton').length).toBe(3);
       expect(text(el)).not.toContain('$1.20M');
-      http
-        .expectOne((r) => r.url.endsWith('/value-equity-debt') && r.params.get('portfolioId') === '2')
-        .flush(
-          valueCard({
+      dashboardRequest(http, 2).flush(
+        dashboard(2, {
+          valueEquityDebt: valueCard({
             scope: 'PORTFOLIO',
             portfolioId: 2,
             totalHoldings: 2,
@@ -705,81 +886,98 @@ describe('Overviews: home and professional areas', () => {
             debt: metric(600_000, 600_000, 2, 2),
             equity: metric(1_300_000, 1_300_000, 2, 2),
           }),
-        );
-      http.expectOne(
-        (r) => r.url.endsWith('/occupancy-exposure') && r.params.get('portfolioId') === '2',
-      );
-      http
-        .expectOne((r) => r.url.endsWith('/portfolios/2/summary'))
-        .flush({
-          portfolioId: 2,
-          portfolioName: 'Keys',
-          status: 'COMPLETE',
-          generatedAt: '2026-11-16T09:00:00Z',
-          asOfDate: '2026-11-16',
-          fromDate: '2026-01-01',
-          toDate: '2026-11-16',
-          valuationAndDebt: null,
-          financials: {
-            status: 'OK',
-            basis: 'CASH_BASIS',
-            currency: 'USD',
-            fromDate: '2026-01-01',
-            toDate: '2026-11-16',
-            income: 4350,
-            expenses: 1200,
-            cashFlow: 3150,
-            recordCount: 3,
-            holdingsWithRecords: 1,
+          incomeExpensesReturns: incomeCard({
+            portfolioId: 2,
             totalHoldings: 2,
-            note: 'Recorded income minus recorded expenses.',
-            categories: [
-              { category: 'REPAIRS', type: 'EXPENSE', amount: 1200, recordCount: 1 },
-              { category: 'RENT', type: 'INCOME', amount: 4350, recordCount: 2 },
-            ],
-          },
-          occupancyAndExposure: null,
-          errors: [],
-        });
+            actual: { ...incomeCard().actual, status: 'NO_RECORDS', recordCount: 0, holdingsWithRecords: 0, categories: [] },
+            projected: { ...incomeCard().projected, status: 'UNAVAILABLE', reason: 'No rented holding has a contract rent.' },
+          }),
+        }),
+      );
       failRest(http);
       fixture.detectChanges();
       // Complete coverage: no Partial label, and the action becomes Add a holding.
       const keys = section(el, 'Keys');
       expect(text(keys)).not.toContain('Partial:');
       expect(text(keys)).toContain('2 of 2 holdings valued');
-      expect(text(keys)).toContain(
-        'Every holding has a loan balance or is recorded as bought with cash.',
-      );
+      expect(text(keys)).toContain('Every holding has a loan balance or is recorded as bought with cash.');
       expect(keys.querySelector('a.btn.primary')!.textContent!.trim()).toBe('Add a holding');
-      const cash = section(el, 'Cash flow');
-      expect(text(cash)).toMatch(/Keys · Jan 1(, 2026)? to Nov 16(, 2026)? · Cash basis/);
-      expect(text(cash)).toContain('From records on 1 of 2 holdings');
-      expect(text(cash)).not.toContain('Partial:');
-      // Income first, signed; expenses with a true minus.
-      expect(rowsOf(cash)).toEqual([
-        'Rent Income | Income | 2 | +$4,350',
-        'Repairs Expense | Expense | 1 | −$1,200',
-      ]);
+      const keysIncome = section(el, 'Income and returns');
+      expect(text(keysIncome)).toContain('No income or expense was recorded from Nov 2025 to Oct 2026.');
+      expect(text(keysIncome)).toContain('No rented holding has a contract rent.');
+      expect(kpiValues(keysIncome)).toEqual([]);
     });
 
-    it('a failed strip says so, and Retry moves focus to the section heading', () => {
+    it('a card the server could not build says so beside the others; Retry moves focus to its heading', () => {
       const http = signedIn();
       const fixture = TestBed.createComponent(InvestorDashboard);
       fixture.detectChanges();
       http
         .expectOne((r) => r.url.endsWith('/portfolios'))
         .flush(page([{ id: 1, name: 'Miami rentals', holdingCount: 5 }]));
-      http
-        .expectOne((r) => r.url.endsWith('/value-equity-debt'))
-        .flush('down', { status: 500, statusText: 'Server Error' });
+      // PARTIAL: one card has status ERROR, the others are kept.
+      dashboardRequest(http, null).flush(
+        dashboard(null, {
+          status: 'PARTIAL',
+          failedCards: ['valueEquityDebt'],
+          valueEquityDebt: { ...valueCard(), status: 'ERROR', error: 'Valuations are unavailable.' },
+        }),
+      );
       failRest(http);
       fixture.detectChanges();
-      const lead = section(attach(fixture.nativeElement), 'Miami rentals');
+      const el = attach(fixture.nativeElement);
+      const lead = section(el, 'Miami rentals');
       expect(text(lead)).toContain('Value, debt and equity could not load.');
+      expect(kpiValues(section(el, 'Occupancy'))).toEqual(['67%']);
       retryIn(lead).click();
       fixture.detectChanges();
       expect(document.activeElement).toBe(headingOf(lead));
+      // A failed request (503: no card could be built) fails every section, each with Retry.
+      http
+        .expectOne((r) => r.url.endsWith('/portfolios'))
+        .flush(page([{ id: 1, name: 'Miami rentals', holdingCount: 5 }]));
+      dashboardRequest(http, null).flush('down', { status: 503, statusText: 'Unavailable' });
       failRest(http);
+      fixture.detectChanges();
+      for (const heading of ['Miami rentals', 'Occupancy', 'Income and returns', 'Opportunities'])
+        expect(retryIn(section(el, heading))).toBeTruthy();
+    });
+
+    it('a failed card as the server builds it (status and error only, the rest null) never breaks the page', () => {
+      const http = signedIn();
+      const fixture = TestBed.createComponent(InvestorDashboard);
+      fixture.detectChanges();
+      http.expectOne((r) => r.url.endsWith('/portfolios')).flush(
+        page([
+          { id: 1, name: 'Miami rentals', holdingCount: 5 },
+          { id: 2, name: 'Keys', holdingCount: 1 },
+        ]),
+      );
+      // InvestorDashboardServiceImpl's stand-in: items and totalHoldings are null, not empty.
+      const standIn = (error: string) => ({
+        scope: 'ALL_PORTFOLIOS',
+        portfolioId: null,
+        portfolioCount: 2,
+        status: 'ERROR',
+        error,
+        generatedAt: '2026-11-26T09:00:00Z',
+        totalHoldings: null,
+        items: null,
+      });
+      dashboardRequest(http, null).flush(
+        dashboard(null, {
+          status: 'PARTIAL',
+          failedCards: ['valueEquityDebt', 'opportunities'],
+          valueEquityDebt: standIn('Valuations are unavailable.'),
+          opportunities: standIn('Scores are unavailable.'),
+        }),
+      );
+      failRest(http);
+      expect(() => fixture.detectChanges()).not.toThrow();
+      const el = attach(fixture.nativeElement);
+      expect(text(section(el, 'All portfolios'))).toContain('Value, debt and equity could not load.');
+      expect(text(section(el, 'Opportunities'))).toContain('Opportunities could not load.');
+      expect(kpiValues(section(el, 'Occupancy'))).toEqual(['67%']);
     });
 
     it('asks again when the list drops the portfolio in view, and never shows its old figures', () => {
@@ -799,13 +997,11 @@ describe('Overviews: home and professional areas', () => {
         .forEach((r) => r.flush('gone', { status: 404, statusText: 'Not Found' }));
       fixture.detectChanges();
       // The slice moved the scope to all portfolios; the overview asks for it with the scope action.
-      http
-        .expectOne((r) => r.url.endsWith('/value-equity-debt') && !r.params.has('portfolioId'))
-        .flush(valueCard({ totalHoldings: 5 }));
+      dashboardRequest(http, null).flush(dashboard(null, { valueEquityDebt: valueCard({ totalHoldings: 5 }) }));
       failRest(http);
       fixture.detectChanges();
       const el = fixture.nativeElement as HTMLElement;
-      expect(kpiValues(el).slice(0, 3)).toEqual(['$1.20M', '$400K', '$500K']);
+      expect(kpiValues(section(el, 'Miami rentals'))).toEqual(['$1.20M', '$400K', '$500K']);
       expect(text(section(el, 'Miami rentals'))).not.toContain('could not load');
     });
 
@@ -816,9 +1012,13 @@ describe('Overviews: home and professional areas', () => {
       http
         .expectOne((r) => r.url.endsWith('/portfolios'))
         .flush(page([{ id: 1, name: 'Miami rentals', holdingCount: 5 }]));
-      http
-        .expectOne((r) => r.url.endsWith('/value-equity-debt'))
-        .flush(valueCard({ equity: metric(null, 0, 0) }));
+      dashboardRequest(http, null).flush(
+        dashboard(null, {
+          valueEquityDebt: valueCard({ equity: metric(null, 0, 0) }),
+          incomeExpensesReturns: incomeCard({ projected: { ...incomeCard().projected, grossYieldPercent: null } }),
+          opportunities: opportunitiesCard({ status: 'EMPTY', candidateStatus: 'NOT_SCORED', items: [], totalCandidates: 0 }),
+        }),
+      );
       failRest(http);
       fixture.detectChanges();
       const el = fixture.nativeElement as HTMLElement;
@@ -826,6 +1026,10 @@ describe('Overviews: home and professional areas', () => {
       expect(equity.querySelector('.kpi-value.na')).toBeTruthy();
       expect(text(equity)).toContain('Needs a value and a loan balance on the same holding');
       expect(text(el)).not.toContain('Partial: 0 of');
+      const yieldKpi = [...el.querySelectorAll('.kpi')].find((k) => k.textContent!.includes('Gross yield'))!;
+      expect(text(yieldKpi)).toContain('A purchase price is missing');
+      // No candidate: the shared service's reason, never an invented list.
+      expect(text(section(el, 'Opportunities'))).toContain('Opportunity scores have not been calculated yet.');
     });
   });
 
@@ -845,11 +1049,38 @@ describe('Overviews: home and professional areas', () => {
       content: [],
     } as unknown as RecommendationResponse;
 
-    it('leads with the matches (the area form without preferences), then saved searches and alerts', () => {
+    it('leads with the matches (the area form without preferences), then saved properties, searches, alerts and activity', () => {
       const http = signedIn();
       const fixture = TestBed.createComponent(BuyerDashboard);
       fixture.detectChanges();
       http.expectOne((r) => r.url.endsWith('/recommendations')).flush(recommendations);
+      http
+        .expectOne((r) => r.url.endsWith('/dashboards/user/favorites'))
+        .flush({
+          scope: 'CURRENT_USER',
+          generatedAt: '2026-11-18T15:00:00Z',
+          status: 'OK',
+          error: null,
+          count: 3,
+          limit: 5,
+          recent: [
+            { propertyId: 42, folio: '0141370120450', address: '2847 SW 27th Ter', countyName: 'Miami-Dade', stateCode: 'FL', favoritedAt: '2026-11-16T10:00:00Z' },
+            { propertyId: 43, folio: '0141370120460', address: null, countyName: 'Miami-Dade', stateCode: 'FL', favoritedAt: '2026-11-12T10:00:00Z' },
+          ],
+        });
+      http
+        .expectOne((r) => r.url.endsWith('/dashboards/user/activity'))
+        .flush({
+          scope: 'CURRENT_USER',
+          generatedAt: '2026-11-18T15:00:00Z',
+          status: 'OK',
+          error: null,
+          limit: 6,
+          recent: [
+            { type: 'SAVED_SEARCH_CREATED', occurredAt: '2026-11-17T10:00:00Z', entityId: 1, label: 'Coral Gables 3-bed', propertyId: null, portfolioId: null },
+            { type: 'PORTFOLIO_CREATED', occurredAt: '2026-11-15T10:00:00Z', entityId: 3, label: 'Miami rentals', propertyId: null, portfolioId: 3 },
+          ],
+        });
       http
         .expectOne((r) => r.url.endsWith('/dashboards/user/saved-searches'))
         .flush({
@@ -900,9 +1131,24 @@ describe('Overviews: home and professional areas', () => {
       expect(rowsOf(alerts)[0]).toContain('New matches');
       expect(rowsOf(alerts)[1]).toContain('ZentraValue changes');
       expect(rowsOf(alerts)[1]).toContain('Paused with its search');
-      // The shortcut cards and the trio are gone.
+
+      // SOW: favorites and recent activity, from the cards the overview already asks for.
+      const saved = section(el, 'Saved properties');
+      expect(text(saved)).toContain('2 newest of 3');
+      expect(saved.querySelector('tbody a')!.textContent!.trim()).toBe('2847 SW 27th Ter');
+      expect(rowsOf(saved)[0]).toMatch(/Miami-Dade County, FL \| Nov 16$/);
+      // Without an address, the folio, never "Property #43".
+      expect(rowsOf(saved)[1]).toContain('Folio 01-4137-012-0460');
+      expect(saved.querySelector('tbody a')!.getAttribute('href')).toBe('/property/42');
+      const activity = section(el, 'Recent activity');
+      expect(rowsOf(activity)[0]).toMatch(/^Saved a search\s*Coral Gables 3-bed \| Nov 17$/);
+      expect(activity.querySelector('tbody a')!.getAttribute('href')).toBe('/saved');
+      // A home buyer has no Portfolio page: the portfolio is named, not linked.
+      expect(rowsOf(activity)[1]).toMatch(/^Created a portfolio\s*Miami rentals/);
+      expect(activity.querySelectorAll('tbody a').length).toBe(1);
+      // No shortcut cards, and the calculators stay in the Studio.
       expect(text(el)).not.toContain('Compare properties');
-      expect(text(el)).not.toContain('Saved properties');
+      expect(text(el)).not.toContain('Affordability');
     });
 
     it('a failed section says what failed and retries', () => {

@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { environment } from '../../environments/environment';
+import { WRITE_TIMEOUT } from '../core/interceptors/error.interceptor';
 import {
   OpportunityPageDTO,
   OpportunityQuery,
@@ -18,12 +19,15 @@ export class OpportunityService {
       params: queryParams(query),
     });
   }
-  /** Admin: rescore missing or stale scores (INCREMENTAL) or every valued property (FULL). */
+  /**
+   * Admin: rescore missing or stale scores (INCREMENTAL) or every valued property (FULL). The
+   * server answers when the run is over (minutes for FULL), so it is given 15 minutes.
+   */
   refresh(mode: OpportunityRefreshMode) {
     return this.http.post<OpportunityRefreshResultDTO>(
       environment.apiUrl + '/admin/opportunity-scores/refresh',
       null,
-      { params: { mode } },
+      { params: { mode }, context: new HttpContext().set(WRITE_TIMEOUT, 15 * 60_000) },
     );
   }
 }

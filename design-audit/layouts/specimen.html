@@ -1,0 +1,395 @@
+<!doctype html>
+<!--
+  App-shell layout specimens (design-audit step 3). Not app code; nothing in src/ imports it.
+  One screen, the lender's loan applications, in two shell concepts:
+    ?l=desk      labelled rail, register, docked record pane
+    ?l=register  top bar with a section tier, register with rows that open in place
+  Extra: &open=1 shows the record on its own (phone), &h=manrope sets h1/h2 in Manrope 700.
+  Data: organization 3 in design-audit/mock/fixtures/lender-admin.cjs (page 1 of 22, sorted by
+  last update) and the collateral analysis the mock returns for application 1041. Addresses are
+  what the catalog lookup (CatalogActions.resolveProperty) resolves for each propertyId.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shell layouts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@700&display=swap" />
+<style>
+:root{
+  --ink:#172735; --ink-2:#4e6170; --paper:#f5f6f7; --surface:#fff;
+  --rule:#e2e7ea; --rule-strong:#c5ced4; --control:#7d8c97; --placeholder:#5e6e7b;
+  --copper:#8a5636; --copper-tint:#f4ece6; --attention:#8c4f17; --positive:#23695b; --negative:#a63e32;
+  --navy:#172735; --navy-2:#22384a; --rail-ink:#c3ccd2; --copper-mark:#d39a73;
+  --hatch:repeating-linear-gradient(135deg,#d9e0e5 0 1px,transparent 1px 6px);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--paper);color:var(--ink);font:400 14px/1.45 'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body[data-h=manrope] h1,body[data-h=manrope] h2{font-family:Manrope,'DM Sans',sans-serif;font-weight:700;letter-spacing:-.02em}
+svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+a{color:var(--copper)}
+.num,table{font-variant-numeric:tabular-nums lining-nums}
+.muted{color:var(--ink-2)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:4px;border:1px solid var(--control);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer}
+.btn.primary{background:var(--copper);border-color:var(--copper);color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;padding:0 8px;color:var(--ink-2)}
+.iconbtn{display:inline-grid;place-items:center;width:34px;height:34px;border:0;background:transparent;color:inherit;border-radius:4px;cursor:pointer}
+.avatar{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#dfe5e9;color:var(--ink);font-size:12px;font-weight:600}
+.search{display:flex;align-items:center;gap:8px;height:34px;width:320px;padding:0 10px;border:1px solid var(--control);border-radius:4px;background:#fff;color:var(--placeholder);font-size:13px}
+.search svg{width:16px;height:16px}
+.switcher{position:fixed;right:12px;bottom:12px;z-index:20;display:flex;gap:4px;padding:4px;background:#fff;border:1px solid #ccd;border-radius:6px;font:13px system-ui}
+.switcher a{padding:4px 10px;color:#223;text-decoration:none;border-radius:4px}
+.switcher a[aria-current]{background:#223;color:#fff}
+body[data-shot] .switcher{display:none}
+body[data-l=desk] .only-register,body[data-l=register] .only-desk{display:none!important}
+.m-only{display:none!important}
+
+/* ---------- register (shared by both concepts) ---------- */
+.reg-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-.015em;display:flex;align-items:baseline;gap:10px}
+h1 .count{font-size:16px;font-weight:400;color:var(--ink-2);letter-spacing:0}
+.reg-actions{display:flex;gap:8px}
+.stages{display:flex;margin:12px 0 0;border-bottom:1px solid var(--rule);font-size:13px;overflow:hidden}
+.stages a{padding:6px 12px 8px;color:var(--ink-2);text-decoration:none;white-space:nowrap}
+.stages a:first-child{padding-left:0}
+.stages a b{font-weight:500;color:var(--ink);margin-left:5px}
+.stages a[aria-current]{color:var(--ink);box-shadow:inset 0 -2px 0 var(--copper)}
+.stage-select{display:none}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;background:var(--surface)}
+thead th{position:sticky;top:0;z-index:2;background:#fafbfb;color:var(--ink-2);font-weight:500;text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule-strong);white-space:nowrap}
+th button{all:unset;cursor:pointer}
+th[aria-sort] button{color:var(--ink)}
+th[aria-sort] button::after{content:'↓';margin-left:4px;color:var(--copper)}
+th.r,td.r{text-align:right}
+td{padding:8px 10px;border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+tbody tr:hover>td{background-color:#f7f9fa}
+tbody tr.sel>td{background-color:var(--copper-tint)}
+tbody tr.sel>td:first-child{box-shadow:inset 3px 0 0 var(--copper)}
+.applicant{font-weight:500}
+td.na{background-image:var(--hatch)}
+.na-word{color:var(--ink-2)}
+.st-funded,.st-approved{color:var(--positive)}
+.st-rejected{color:var(--negative)}
+.st-withdrawn,.st-draft{color:var(--ink-2)}
+.sub{display:block;font-size:12px;color:var(--ink-2);font-weight:400;overflow:hidden;text-overflow:ellipsis}
+.pager{display:flex;align-items:center;justify-content:space-between;padding:10px 0;font-size:13px;color:var(--ink-2)}
+
+/* ---------- record blocks (pane in Desk, expanded row in Register) ---------- */
+.group h3{margin:0;padding:14px 0 6px;font-size:13px;font-weight:600;border-bottom:1px solid var(--ink)}
+.row{display:grid;grid-template-columns:42% 1fr;border-bottom:1px solid var(--rule);min-height:33px}
+.row dt,.row dd{margin:0;padding:7px 0;font-size:13px}
+.row dt{color:var(--ink-2)}
+.row dd{padding-left:8px;overflow:hidden;text-overflow:ellipsis}
+dl{margin:0}
+.prop{margin:10px 0 12px;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;color:var(--ink-2)}
+.prop a{font-weight:500;font-size:14px}
+.zv .label{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.zv .fig{font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.1;margin:2px 0 12px}
+.range-track{position:relative;height:18px;margin:0 0 4px}
+.range-track::before{content:'';position:absolute;left:0;right:0;top:8px;height:2px;background:var(--rule-strong)}
+.range-track i{position:absolute;top:3px;height:12px;background:#e6d3c5;border-left:2px solid var(--copper);border-right:2px solid var(--copper)}
+.range-track i.pt{top:0;height:18px;width:2px;background:var(--ink);border:0;margin-left:-1px}
+.range-ends{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.range-ends b{color:var(--ink);font-weight:500}
+.zv .conf{margin:10px 0 0;font-size:13px}
+.ltv{display:grid;grid-template-columns:auto 1fr;align-items:baseline;gap:2px 12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--rule)}
+.ltv .lab{font-size:13px;color:var(--ink-2)}
+.ltv .fig{font-size:20px;font-weight:600;text-align:right}
+.ltv .cap{grid-column:1/-1;font-size:12px;color:var(--ink-2)}
+.disc{margin:10px 0 0;font-size:12px;color:var(--ink-2)}
+.empty-note{margin:10px 0 8px;font-size:13px;color:var(--ink-2)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+
+/* ================= Concept 1: Desk ================= */
+.desk{display:grid;grid-template-columns:84px minmax(0,1fr);grid-template-rows:52px minmax(0,1fr);height:100vh}
+.rail{grid-row:1/3;background:var(--navy);display:flex;flex-direction:column;padding:8px 0 10px}
+.rail .mark{height:44px;display:grid;place-items:center;color:var(--copper-mark);font-size:34px;line-height:1}
+.rail a{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 2px 8px;color:var(--rail-ink);text-decoration:none;font-size:12px;line-height:1.15;text-align:center}
+.rail a[aria-current]{color:#fff;background:var(--navy-2)}
+.rail a[aria-current]::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:3px;background:var(--copper-mark)}
+.rail hr{width:44px;border:0;border-top:1px solid #34495a;margin:8px auto}
+.rail .end{margin-top:auto}
+.desk .top{grid-column:2;display:flex;align-items:center;gap:16px;padding:0 20px 0 24px;background:var(--surface);border-bottom:1px solid var(--rule)}
+.org{display:flex;align-items:center;gap:4px;font-weight:600;font-size:14px;white-space:nowrap}
+.org small{display:block;font-size:12px;font-weight:400;color:var(--ink-2)}
+.org svg{width:16px;height:16px;color:var(--ink-2)}
+.top .spacer{flex:1}
+.work{grid-column:2;display:grid;grid-template-columns:minmax(0,1fr) 420px;min-height:0}
+.desk .register{min-width:0;overflow:auto;padding:20px 24px 0}
+.desk .register table{border:1px solid var(--rule);border-top:0}
+.desk .register thead th{top:0}
+/* with a record open the register drops its lowest-priority column (loan type is in the record) */
+.desk .lt{display:none}
+.pane{display:flex;flex-direction:column;min-height:0;background:var(--surface);border-left:1px solid var(--rule-strong)}
+.pane-head{padding:10px 20px 14px;border-bottom:1px solid var(--rule)}
+.pane-nav{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-2)}
+.pane-nav .pos{margin-right:auto}
+.pane-nav .back{display:none}
+.pane-head h2{margin:6px 0 2px;font-size:20px;font-weight:600;letter-spacing:-.01em}
+.meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--ink-2)}
+.meta .st-under_review{color:var(--ink);font-weight:500}
+.pane-head .actions{margin-top:12px;gap:6px}
+.pane-head .btn{padding:0 10px}
+.pane-body{flex:1;overflow:auto;padding:0 20px 24px}
+.bottombar{display:none}
+
+/* ================= Concept 2: Register ================= */
+.reg{min-height:100vh}
+.topnav{height:56px;display:flex;align-items:center;gap:32px;padding:0 32px;background:var(--navy);color:#fff}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:16px;white-space:nowrap}
+.brand .glyph{color:var(--copper-mark);font-size:22px;line-height:1}
+.topnav nav{display:flex;gap:24px;height:100%}
+.topnav nav a{position:relative;display:flex;align-items:center;color:var(--rail-ink);text-decoration:none;font-size:14px}
+.topnav nav a[aria-current]{color:#fff;font-weight:500}
+.topnav nav a[aria-current]::after{content:'';position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--copper-mark)}
+.topnav .spacer{flex:1}
+.topnav .search{border-color:#4a5f6f;background:#22384a;color:#b8c3ca;width:300px}
+.topnav .tools{display:flex;align-items:center;gap:8px}
+.topnav .avatar{background:#34495a;color:#fff}
+.tier{height:46px;display:flex;align-items:center;gap:28px;padding:0 32px;background:var(--surface);border-bottom:1px solid var(--rule)}
+.tier .org{padding-right:28px;border-right:1px solid var(--rule)}
+.tier nav{display:flex;gap:24px;height:100%}
+.tier nav a{display:flex;align-items:center;color:var(--ink-2);text-decoration:none;font-size:14px}
+.tier nav a[aria-current]{color:var(--ink);font-weight:500;box-shadow:inset 0 -2px 0 var(--copper)}
+.tier-select{display:none}
+.container{max-width:1440px;margin:0 auto;padding:22px 32px 40px}
+.reg .tablewrap{margin-top:14px;border:1px solid var(--rule)}
+tr.expanded>td{white-space:normal;max-width:none;padding:0 20px 18px 20px;background:var(--surface);border-bottom:1px solid var(--rule-strong);box-shadow:inset 3px 0 0 var(--copper)}
+tbody tr.expanded:hover>td{background-color:var(--surface)}
+.expand{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(0,.85fr);gap:32px}
+.expand-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px;padding-top:12px;border-top:1px solid var(--rule)}
+
+/* ================= 390 px ================= */
+@media (max-width:700px){
+  .search{width:auto;border:0;padding:0;background:none}
+  .search span{display:none}
+  .stages{display:none}
+  .stage-select{display:flex;align-items:center;justify-content:space-between;height:36px;margin-top:12px;padding:0 10px;border:1px solid var(--control);border-radius:4px;background:#fff;font-size:14px}
+  .reg-actions .btn:not(.primary){display:none}
+  h1{font-size:20px}
+  .p2,.p3,.lt,.upd{display:none!important}
+  .m-only{display:block!important}
+  td{max-width:none;white-space:normal;padding:9px 10px}
+  td.p1:first-child{width:60%}
+  .pager{padding:10px 0 14px}
+  /* Desk on a phone: no rail; a bottom bar with the persona's work; the record replaces the list */
+  .desk{grid-template-columns:1fr;grid-template-rows:52px minmax(0,1fr) 60px}
+  .rail{display:none}
+  .desk .top{grid-column:1;padding:0 8px 0 14px;gap:8px}
+  .desk .top .glyph-m{display:block;color:var(--copper);font-size:22px;line-height:1;margin-right:4px}
+  .org{font-size:14px;min-width:0}
+  .org span{overflow:hidden;text-overflow:ellipsis}
+  .work{grid-column:1;grid-template-columns:1fr}
+  .desk .register{padding:16px 14px 0}
+  .pane{display:none;border-left:0}
+  body[data-open] .desk .register{display:none}
+  body[data-open] .pane{display:flex}
+  body[data-open] .desk .top{display:none}
+  body[data-open] .desk{grid-template-rows:minmax(0,1fr) 60px}
+  body[data-open] .work{grid-row:1}
+  .pane-nav .back{display:inline-flex;align-items:center;gap:2px;margin-right:auto;color:var(--copper);font-size:14px;font-weight:500;text-decoration:none}
+  .pane-nav .pos{display:none}
+  .pane-head .actions{position:static}
+  .bottombar{display:grid;grid-template-columns:repeat(5,1fr);grid-column:1;background:var(--navy);border-top:1px solid #34495a}
+  .bottombar a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--rail-ink);font-size:12px;text-decoration:none}
+  .bottombar a[aria-current]{color:#fff;box-shadow:inset 0 3px 0 var(--copper-mark)}
+  /* Register on a phone: one top bar, the section tier becomes a picker, rows open in place */
+  .topnav{padding:0 8px 0 16px;gap:8px}
+  .topnav nav,.topnav .avatar,.tier .org,.tier nav{display:none}
+  .topnav .search{width:auto;border:0;padding:0 6px;background:none;color:#fff}
+  .tier{padding:0 14px;height:auto;flex-direction:column;align-items:stretch;gap:0}
+  .tier-select{display:flex;align-items:center;justify-content:space-between;height:46px;font-size:14px}
+  .tier-select b{font-weight:600}
+  .container{padding:16px 14px 32px}
+  .expand{grid-template-columns:1fr;gap:0}
+  tr.expanded>td{padding:0 14px 16px}
+  .expand-foot{flex-direction:column;align-items:stretch}
+}
+@media (min-width:701px){.glyph-m,.menu-m{display:none}}
+</style>
+</head>
+<body data-l="desk">
+<nav class="switcher" aria-label="Layout">
+  <a href="?l=desk" data-k="desk">1: Desk</a><a href="?l=register" data-k="register">2: Register</a><a href="#" id="hswitch">Manrope headings</a>
+</nav>
+
+<!-- ======================= Concept 1: Desk ======================= -->
+<div class="desk only-desk">
+  <nav class="rail" aria-label="Workspace">
+    <span class="mark" aria-hidden="true">⌁</span>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>Overview</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v5h-4z"/></svg>Pipeline</a>
+    <a href="#" aria-current="page"><svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 10h6M9 14h6M9 18h4"/></svg>Applications</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M4 17v3h16v-3"/></svg>Import</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14c1.9.8 3 2.9 3 6"/></svg>Team</a>
+    <hr />
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg>Explore</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg>Compare</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg>Alerts</a>
+    <a href="#" class="end"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4"/></svg>Settings</a>
+  </nav>
+  <header class="top">
+    <span class="glyph-m" aria-hidden="true">⌁</span>
+    <div class="org"><span>Biscayne Community Lending</span><svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></div>
+    <div class="search" role="search"><svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg><span>Search address or folio</span></div>
+    <span class="spacer"></span>
+    <button class="iconbtn" aria-label="Notifications"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg></button>
+    <span class="avatar" aria-label="Account">AU</span>
+  </header>
+  <div class="work">
+    <section class="register" aria-label="Applications">
+      <div class="reg-head"><h1>Applications <span class="count num">22</span></h1>
+        <div class="reg-actions"><button class="btn">Import</button><button class="btn primary">New application</button></div></div>
+      <nav class="stages" data-stages></nav>
+      <div class="stage-select"><span>All stages, 22</span><svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></div>
+      <table data-table="desk"></table>
+      <div class="pager"><span class="num">1 to 20 of 22</span><button class="btn">Next page</button></div>
+    </section>
+    <aside class="pane" aria-label="Application 1041">
+      <div class="pane-head">
+        <div class="pane-nav">
+          <a href="#" class="back"><svg class="i" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Applications</a>
+          <span class="pos num">1 of 20 on this page</span>
+          <button class="iconbtn" aria-label="Previous application"><svg class="i" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+          <button class="iconbtn" aria-label="Next application"><svg class="i" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button class="iconbtn" aria-label="Close record"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <h2>Marisol Etienne</h2>
+        <div class="meta"><span class="num">Application 1041</span><span class="st-under_review">Under review</span><span>Updated Nov 18</span></div>
+        <div class="actions" data-actions></div>
+      </div>
+      <div class="pane-body" data-record="pane"></div>
+    </aside>
+  </div>
+  <nav class="bottombar" aria-label="Workspace">
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>Overview</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v5h-4z"/></svg>Pipeline</a>
+    <a href="#" aria-current="page"><svg class="i" viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 10h6M9 14h6M9 18h4"/></svg>Applications</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg>Alerts</a>
+    <a href="#"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/></svg>More</a>
+  </nav>
+</div>
+
+<!-- ======================= Concept 2: Register ======================= -->
+<div class="reg only-register">
+  <header class="topnav">
+    <span class="brand"><span class="glyph" aria-hidden="true">⌁</span>GeoZentra</span>
+    <nav aria-label="Workspace">
+      <a href="#">Overview</a><a href="#" aria-current="page">Loan review</a><a href="#">Explore</a><a href="#">Compare</a><a href="#">Alerts</a>
+    </nav>
+    <span class="spacer"></span>
+    <div class="tools">
+      <div class="search" role="search"><svg class="i" viewBox="0 0 24 24"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20"/></svg><span>Search address or folio</span></div>
+      <button class="iconbtn" aria-label="Notifications"><svg class="i" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0"/></svg></button>
+      <button class="iconbtn menu-m" aria-label="Menu"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <span class="avatar" aria-label="Account">AU</span>
+    </div>
+  </header>
+  <div class="tier">
+    <div class="org"><span>Biscayne Community Lending</span><svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></div>
+    <nav aria-label="Loan review"><a href="#">Pipeline</a><a href="#" aria-current="page">Applications</a><a href="#">Import</a><a href="#">Team</a></nav>
+    <div class="tier-select"><span>Loan review: <b>Applications</b></span><svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></div>
+  </div>
+  <main class="container">
+    <div class="reg-head"><h1>Applications <span class="count num">22</span></h1>
+      <div class="reg-actions"><button class="btn">Import</button><button class="btn primary">New application</button></div></div>
+    <nav class="stages" data-stages></nav>
+    <div class="stage-select"><span>All stages, 22</span><svg class="i" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></div>
+    <div class="tablewrap"><table data-table="register"></table></div>
+    <div class="pager"><span class="num">1 to 20 of 22</span><button class="btn">Next page</button></div>
+  </main>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const b = document.body;
+if (q.get('l') === 'register') b.dataset.l = 'register';
+if (q.get('open')) b.dataset.open = '1';
+if (q.get('h') === 'manrope') b.dataset.h = 'manrope';
+if (q.get('shot')) b.dataset.shot = '1';
+for (const a of document.querySelectorAll('.switcher a[data-k]')) {
+  if (a.dataset.k === b.dataset.l) a.setAttribute('aria-current', 'true');
+  a.href += b.dataset.h ? '&h=manrope' : '';
+}
+const hs = document.getElementById('hswitch');
+hs.href = '?l=' + b.dataset.l + (b.dataset.h ? '' : '&h=manrope');
+hs.textContent = b.dataset.h ? 'DM Sans headings' : 'Manrope headings';
+
+// Organization 3, page 1 of 22, newest update first (lender-admin.cjs ORG3_APPS).
+const P = {42:'2847 SW 27th Ter',43:'2861 SW 27th Ter',44:'3120 Day Ave',45:'1475 W 44th Pl, Unit 208',46:'18402 NW 7th Ave',47:'640 NE 74th St',48:'11960 SW 186th St',49:'1700 Collins Ave, Unit 1504'};
+const TYPE = {CONVENTIONAL:'Conventional',FHA:'FHA',VA:'VA',USDA:'USDA'};
+const STAGE = {DRAFT:'Draft',SUBMITTED:'Submitted',UNDER_REVIEW:'Under review',APPROVED:'Approved',FUNDED:'Funded',REJECTED:'Rejected',WITHDRAWN:'Withdrawn'};
+const APPS = [
+  [1041,'Marisol Etienne',44,'CONVENTIONAL','UNDER_REVIEW',1180000,null,null,'Nov 18'],
+  [1043,'Yolanda Prieto',46,'FHA','SUBMITTED',312000,null,null,'Nov 18'],
+  [1040,'Aaron Feldstein',49,'CONVENTIONAL','UNDER_REVIEW',520000,null,null,'Nov 18'],
+  [1044,'Kenneth Baptiste',null,'UNKNOWN','DRAFT',425000,null,null,'Nov 17'],
+  [1039,'Desmond Okafor',47,'CONVENTIONAL','FUNDED',880000,860000,860000,'Nov 17'],
+  [1036,'Rosa Villanueva',45,'FHA','APPROVED',240000,236000,null,'Nov 16'],
+  [1045,'Ana Lucía Restrepo',42,'CONVENTIONAL','DRAFT',690000,null,null,'Nov 16'],
+  [1034,'Samuel Oyelaran',42,'VA','UNDER_REVIEW',815000,null,null,'Nov 14'],
+  [1030,'Carlos Mendoza Ruiz',42,'UNKNOWN','FUNDED',805000,800000,800000,'Nov 13'],
+  [1027,'Gustavo Ferreira',48,'CONVENTIONAL','UNDER_REVIEW',590000,null,null,'Nov 12'],
+  [1038,'Graciela Montes',48,'FHA','FUNDED',450000,450000,448000,'Nov 11'],
+  [1033,'Elena Castellanos',43,'FHA','APPROVED',640000,625000,null,'Nov 10'],
+  [1042,'Tomás Iglesias',null,'VA','SUBMITTED',298000,null,null,'Nov 9'],
+  [1037,'Michael Thibodeaux',44,'CONVENTIONAL','SUBMITTED',1320000,null,null,'Nov 8'],
+  [1031,'Imani Brooks',null,'USDA','SUBMITTED',275000,null,null,'Nov 6'],
+  [1032,'Viktor Sokolov',47,'CONVENTIONAL','REJECTED',920000,null,null,'Oct 29'],
+  [1025,'Terrence Whitlock',43,'VA','FUNDED',690000,690000,690000,'Oct 27'],
+  [1029,'Hannah Goldberg',44,'CONVENTIONAL','APPROVED',1250000,1200000,null,'Oct 24'],
+  [1035,'Beatriz Andrade',null,'UNKNOWN','DRAFT',199500,null,null,'Oct 22'],
+  [1024,'Lucía Bermúdez',42,'CONVENTIONAL','FUNDED',760000,760000,752500,'Oct 16'],
+];
+// Stage counts from the pipeline endpoint.
+const COUNTS = [['All',22],['Draft',3],['Submitted',4],['Under review',4],['Approved',3],['Funded',5],['Rejected',2],['Withdrawn',1]];
+const usd = (n) => '$' + n.toLocaleString('en-US');
+const head = `<thead><tr>
+  <th><button>Applicant</button></th><th class="p2"><button>Property</button></th><th class="p3 lt"><button>Loan type</button></th>
+  <th class="p2"><button>Stage</button></th><th class="r"><button>Requested</button></th><th class="r p2"><button>Approved</button></th>
+  <th class="r p2"><button>Funded</button></th><th class="r upd" aria-sort="descending"><button>Updated</button></th></tr></thead>`;
+function row([id, name, pid, type, stage, req, appr, fund, upd], sel) {
+  const prop = pid ? P[pid] : 'No property linked';
+  const st = 'st-' + stage.toLowerCase();
+  return `<tr${sel ? ' class="sel" aria-selected="true"' : ''}>
+    <td class="p1"><span class="applicant">${name}</span><span class="m-only sub">${prop}</span></td>
+    <td class="p2">${pid ? P[pid] : '<span class="muted">No property linked</span>'}</td>
+    ${type === 'UNKNOWN' ? '<td class="p3 lt na"><span class="na-word">Unavailable</span></td>' : `<td class="p3 lt">${TYPE[type]}</td>`}
+    <td class="p2 ${st}">${STAGE[stage]}</td>
+    <td class="r">${usd(req)}<span class="m-only sub ${st}">${STAGE[stage]}</span></td>
+    <td class="r p2">${appr ? usd(appr) : ''}</td>
+    <td class="r p2">${fund ? usd(fund) : ''}</td>
+    <td class="r upd muted">${upd}</td></tr>`;
+}
+// Application 1041: GET /lender/applications/1041/collateral-analysis (property 44).
+const actions = `<button class="btn primary">Record approval</button><button class="btn">Record rejection</button><button class="btn">Mark withdrawn</button>`;
+const loan = `<div class="group"><h3>Loan</h3><dl>
+  <div class="row"><dt>Requested</dt><dd class="num">$1,180,000</dd></div>
+  <div class="row"><dt>Loan type</dt><dd>Conventional</dd></div>
+  <div class="row"><dt>Applicant email</dt><dd>marisol.etienne@example.test</dd></div>
+  <div class="row"><dt>Created</dt><dd class="num">Nov 4, 2026</dd></div></dl></div>`;
+const collateral = `<div class="group"><h3>Collateral</h3>
+  <p class="prop"><a href="#">3120 Day Ave</a><span>Miami, FL 33133</span><span class="num">Folio 01-4116-029-0330</span></p>
+  <div class="zv"><div class="label"><span>ZentraValue</span><span class="num">Valued Oct 31, 2026</span></div>
+    <div class="fig num">$1,640,000</div>
+    <div class="range-track" aria-hidden="true"><i style="left:17.3%;right:18.9%"></i><i class="pt" style="left:49.2%"></i></div>
+    <div class="range-ends num"><span><b>$1,498,000</b></span><span>80% range</span><span><b>$1,782,000</b></span></div>
+    <p class="conf">Medium confidence</p></div>
+  <div class="ltv"><span class="lab">Loan-to-value</span><span class="fig num">72.0%</span><span class="cap">On the requested $1,180,000</span></div>
+  <p class="disc">Informational only; not a credit decision or approval.</p></div>`;
+const notes = `<div class="group"><h3>Notes</h3><p class="empty-note">No notes yet.</p><button class="btn">Add a note</button></div>`;
+
+for (const n of document.querySelectorAll('[data-stages]'))
+  n.innerHTML = COUNTS.map(([l, c], i) => `<a href="#"${i ? '' : ' aria-current="true"'}>${l}<b class="num">${c}</b></a>`).join('');
+document.querySelector('[data-table=desk]').innerHTML = head + '<tbody>' + APPS.map((a, i) => row(a, i === 0)).join('') + '</tbody>';
+document.querySelector('[data-table=register]').innerHTML = head + '<tbody>' + APPS.map((a, i) => row(a, i === 0) + (i === 0
+  ? `<tr class="expanded"><td colspan="8"><div class="expand">${loan}${collateral}${notes}</div>
+      <div class="expand-foot"><div class="actions">${actions}</div><a href="#">Open application 1041</a></div></td></tr>` : '')).join('') + '</tbody>';
+document.querySelector('[data-actions]').innerHTML = actions;
+document.querySelector('[data-record=pane]').innerHTML = collateral + loan + notes;
+</script>
+</body>
+</html>

@@ -1,175 +1,184 @@
-<div class="lm">
-  <section class="lm-head" aria-labelledby="parcel-search-title">
-    <h1 id="parcel-search-title">Parcel search</h1>
-    <p class="lm-lede">Find a parcel by folio or address, or zoom in to see parcel boundaries.</p>
-    <app-search-bar (search)="search($event)" (pick)="showProperty($event)" />
+@if (!signedIn) {
+  <gz-sign-in-prompt
+    class="lm-guest"
+    [page]="true"
+    heading="Sign in to search parcels"
+    text="Parcel boundaries, folios and property records need an account."
+  />
+} @else {
+  <div class="lm">
+    <section class="lm-head" aria-labelledby="parcel-search-title">
+      <h1 id="parcel-search-title">Parcel search</h1>
+      <p class="lm-lede">Find a parcel by folio or address, or zoom in to see parcel boundaries.</p>
+      <app-search-bar (search)="search($event)" (pick)="showProperty($event)" />
 
-    @if (asked() && properties().error) {
-      <div class="insight danger section" role="alert">
-        {{ properties().error }}<button class="btn small" (click)="retry()">Retry</button>
-      </div>
-    }
-    @if (properties().searchNotice) {
-      <p class="insight section" role="status">{{ properties().searchNotice }}</p>
-    }
-  </section>
+      @if (asked() && properties().error) {
+        <div class="insight danger section" role="alert">
+          {{ properties().error }}<button class="btn small" (click)="retry()">Retry</button>
+        </div>
+      }
+      @if (properties().searchNotice) {
+        <p class="insight section" role="status">{{ properties().searchNotice }}</p>
+      }
+    </section>
 
-  <div class="lm-detail">
+    <div class="lm-detail">
 
-    @if (properties().addressMatches.length > 1) {
-      <section class="lm-section" aria-labelledby="matches-title">
-        <h2 id="matches-title">
-          @if (matchesCapped()) {
-            First {{ properties().addressMatches.length }} properties at this address
-          } @else {
-            {{ properties().addressMatches.length }} properties at this address
+      @if (properties().addressMatches.length > 1) {
+        <section class="lm-section" aria-labelledby="matches-title">
+          <h2 id="matches-title">
+            @if (matchesCapped()) {
+              First {{ properties().addressMatches.length }} properties at this address
+            } @else {
+              {{ properties().addressMatches.length }} properties at this address
+            }
+          </h2>
+          <p class="lm-note">
+            @if (matchesCapped()) {
+              Add a street number, unit or city to narrow it down.
+            } @else {
+              Choose one to show it on the map.
+            }
+          </p>
+          <ul class="lm-matches" aria-label="Address matches">
+            @for (m of properties().addressMatches; track m.id) {
+              <li [class.chosen]="isChosen(m, $index)">
+                <button
+                  type="button"
+                  class="lm-match"
+                  [attr.aria-pressed]="isChosen(m, $index)"
+                  (click)="chooseMatch(m)"
+                >
+                  @if (photo(m.id); as url) {
+                    <img [src]="url" alt="" loading="lazy" (error)="failedImage(m.id)" />
+                  } @else {
+                    <span class="lm-thumb" aria-hidden="true"><gz-icon name="home" /></span>
+                  }
+                  <span class="lm-match-text">
+                    <span class="lm-match-title">{{ matchTitle(m) }}</span>
+                    <span class="lm-match-place">{{ matchPlace(m) }}</span>
+                  </span>
+                </button>
+                <a
+                  class="lm-record"
+                  [routerLink]="['/property', m.id]"
+                  [attr.aria-label]="'Open the full record for ' + matchTitle(m)"
+                  >Record</a
+                >
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
+      @if (heatmap()) {
+        <gz-request-status
+          [error]="valuation().bulkError"
+          retryLabel="Retry growth"
+          (retry)="loadHeatmap()"
+        />
+      }
+      @if (heatmap() && !valuation().bulkError && growth(); as g) {
+        <gz-growth-panel
+          [summary]="g"
+          [metric]="metric()"
+          [forecastHomes]="forecastHomes()"
+          [cellMeters]="cellMeters()"
+          (metricChange)="setMetric($event)"
+          (focusCell)="focusCell($event)"
+        />
+      }
+
+      @if (parcelLayer(); as l) {
+        <p class="lm-source">
+          {{ l.name }}: {{ l.source }}
+          @if (l.coverage.length) {
+            · covers {{ l.coverage.join(', ') }}
           }
-        </h2>
-        <p class="lm-note">
-          @if (matchesCapped()) {
-            Add a street number, unit or city to narrow it down.
-          } @else {
-            Choose one to show it on the map.
+          · {{ l.featureCount | number }} boundaries
+          @if (l.lastUpdated) {
+            · updated {{ l.lastUpdated | date: 'mediumDate' }}
           }
         </p>
-        <ul class="lm-matches" aria-label="Address matches">
-          @for (m of properties().addressMatches; track m.id) {
-            <li [class.chosen]="isChosen(m, $index)">
-              <button
-                type="button"
-                class="lm-match"
-                [attr.aria-pressed]="isChosen(m, $index)"
-                (click)="chooseMatch(m)"
-              >
-                @if (photo(m.id); as url) {
-                  <img [src]="url" alt="" loading="lazy" (error)="failedImage(m.id)" />
-                } @else {
-                  <span class="lm-thumb" aria-hidden="true"><gz-icon name="home" /></span>
-                }
-                <span class="lm-match-text">
-                  <span class="lm-match-title">{{ matchTitle(m) }}</span>
-                  <span class="lm-match-place">{{ matchPlace(m) }}</span>
-                </span>
-              </button>
-              <a
-                class="lm-record"
-                [routerLink]="['/property', m.id]"
-                [attr.aria-label]="'Open the full record for ' + matchTitle(m)"
-                >Record</a
-              >
-            </li>
-          }
-        </ul>
-      </section>
-    }
-
-    @if (heatmap()) {
-      <gz-request-status
-        [error]="valuation().bulkError"
-        retryLabel="Retry growth"
-        (retry)="loadHeatmap()"
-      />
-    }
-    @if (heatmap() && !valuation().bulkError && growth(); as g) {
-      <gz-growth-panel
-        [summary]="g"
-        [metric]="metric()"
-        [forecastHomes]="forecastHomes()"
-        [cellMeters]="cellMeters()"
-        (metricChange)="setMetric($event)"
-        (focusCell)="focusCell($event)"
-      />
-    }
-
-    @if (parcelLayer(); as l) {
-      <p class="lm-source">
-        {{ l.name }}: {{ l.source }}
-        @if (l.coverage.length) {
-          · covers {{ l.coverage.join(', ') }}
-        }
-        · {{ l.featureCount | number }} boundaries
-        @if (l.lastUpdated) {
-          · updated {{ l.lastUpdated | date: 'mediumDate' }}
-        }
-      </p>
-    }
-  </div>
-
-  <div class="lm-mapwrap">
-    <div id="map" class="lm-map" role="region" aria-label="Map"></div>
-    <div class="lm-bar">
-      <div class="toggle" role="group" aria-label="Map layer">
-        <button
-          type="button"
-          [class.active]="!heatmap()"
-          [attr.aria-pressed]="!heatmap()"
-          (click)="showGrowth(false)"
-        >
-          Parcels</button
-        ><button
-          type="button"
-          [class.active]="heatmap()"
-          [attr.aria-pressed]="heatmap()"
-          [disabled]="!!growthBlocked() && !heatmap()"
-          [attr.aria-describedby]="growthBlocked() ? 'growth-blocked' : null"
-          (click)="showGrowth(true)"
-        >
-          {{ valuation().bulkLoading ? 'Loading growth…' : 'Growth since last sale' }}
-        </button>
-      </div>
-      <div class="toggle" role="group" aria-label="Base map">
-        <button
-          type="button"
-          [class.active]="base() === 'street'"
-          [attr.aria-pressed]="base() === 'street'"
-          (click)="setBase('street')"
-        >
-          Street</button
-        ><button
-          type="button"
-          [class.active]="base() === 'satellite'"
-          [attr.aria-pressed]="base() === 'satellite'"
-          (click)="setBase('satellite')"
-        >
-          Satellite</button
-        ><button
-          type="button"
-          [class.active]="base() === 'terrain'"
-          [attr.aria-pressed]="base() === 'terrain'"
-          (click)="setBase('terrain')"
-        >
-          Terrain
-        </button>
-      </div>
-    </div>
-    @if (properties().loading) {
-      <p class="lm-loading" role="status">Loading parcels…</p>
-    }
-    <div class="lm-legend">
-      @if (heatmap() && growth(); as g) {
-        <b>{{ g.metric.name }}</b>
-        <ul class="lm-scale">
-          @for (c of g.metric.classes; track c.color) {
-            <li><i class="swatch" [style.background]="c.color"></i>{{ c.label }}</li>
-          }
-        </ul>
-        <p>Faint squares: fewer than {{ minReliable }} homes.</p>
-      } @else {
-        <div class="lm-keys" aria-hidden="true">
-          <span><i class="key"></i>Parcel boundary</span>
-          <span><i class="key sel"></i>Found or chosen</span>
-        </div>
-        @if (properties().parcels.length) {
-          <p>
-            {{ properties().parcels.length | number }}
-            {{ properties().parcels.length === 1 ? 'parcel boundary' : 'parcel boundaries' }} in
-            view. Click one to open its record.
-          </p>
-        }
-        @if (growthBlocked(); as why) {
-          <p id="growth-blocked">{{ why }}</p>
-        }
       }
     </div>
+
+    <div class="lm-mapwrap">
+      <div id="map" class="lm-map" role="region" aria-label="Map"></div>
+      <div class="lm-bar">
+        <div class="toggle" role="group" aria-label="Map layer">
+          <button
+            type="button"
+            [class.active]="!heatmap()"
+            [attr.aria-pressed]="!heatmap()"
+            (click)="showGrowth(false)"
+          >
+            Parcels</button
+          ><button
+            type="button"
+            [class.active]="heatmap()"
+            [attr.aria-pressed]="heatmap()"
+            [disabled]="!!growthBlocked() && !heatmap()"
+            [attr.aria-describedby]="growthBlocked() ? 'growth-blocked' : null"
+            (click)="showGrowth(true)"
+          >
+            {{ valuation().bulkLoading ? 'Loading growth…' : 'Growth since last sale' }}
+          </button>
+        </div>
+        <div class="toggle" role="group" aria-label="Base map">
+          <button
+            type="button"
+            [class.active]="base() === 'street'"
+            [attr.aria-pressed]="base() === 'street'"
+            (click)="setBase('street')"
+          >
+            Street</button
+          ><button
+            type="button"
+            [class.active]="base() === 'satellite'"
+            [attr.aria-pressed]="base() === 'satellite'"
+            (click)="setBase('satellite')"
+          >
+            Satellite</button
+          ><button
+            type="button"
+            [class.active]="base() === 'terrain'"
+            [attr.aria-pressed]="base() === 'terrain'"
+            (click)="setBase('terrain')"
+          >
+            Terrain
+          </button>
+        </div>
+      </div>
+      @if (properties().loading) {
+        <p class="lm-loading" role="status">Loading parcels…</p>
+      }
+      <div class="lm-legend">
+        @if (heatmap() && growth(); as g) {
+          <b>{{ g.metric.name }}</b>
+          <ul class="lm-scale">
+            @for (c of g.metric.classes; track c.color) {
+              <li><i class="swatch" [style.background]="c.color"></i>{{ c.label }}</li>
+            }
+          </ul>
+          <p>Faint squares: fewer than {{ minReliable }} homes.</p>
+        } @else {
+          <div class="lm-keys" aria-hidden="true">
+            <span><i class="key"></i>Parcel boundary</span>
+            <span><i class="key sel"></i>Found or chosen</span>
+          </div>
+          @if (properties().parcels.length) {
+            <p>
+              {{ properties().parcels.length | number }}
+              {{ properties().parcels.length === 1 ? 'parcel boundary' : 'parcel boundaries' }} in
+              view. Click one to open its record.
+            </p>
+          }
+          @if (growthBlocked(); as why) {
+            <p id="growth-blocked">{{ why }}</p>
+          }
+        }
+      </div>
+    </div>
   </div>
-</div>
+}

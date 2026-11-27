@@ -28,7 +28,7 @@ export const portfolioActions = createActionGroup({
     }>(),
     'Records loaded': props<{ id: number; holdingId: number; page: Page<FinancialRecordDTO> }>(),
     Mutate: props<{ mutation: PortfolioMutation }>(),
-    'Mutation succeeded': emptyProps(),
+    'Mutation succeeded': props<{ mutation?: PortfolioMutation }>(),
     Failed: props<{
       section: 'list' | 'holdings' | 'summary' | 'records' | 'save';
       error: string;

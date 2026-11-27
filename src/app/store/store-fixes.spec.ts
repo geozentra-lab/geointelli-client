@@ -11,6 +11,9 @@ import { importJobsReducer } from './import-jobs/import-jobs.reducer';
 import { selectImportJobs } from './import-jobs/import-jobs.selectors';
 import { CatalogActions } from './catalog/catalog.actions';
 import { UserActions } from './user/user.actions';
+import { favoritesActions } from './favorites/favorites.actions';
+import { CrmActions } from './crm/crm.actions';
+import { portfolioActions } from './portfolio/portfolio.actions';
 
 /**
  * Two store fixes (approved Nov 20, 2026, after item 10): a failed background refresh of Import jobs
@@ -150,6 +153,49 @@ describe('Store fixes', () => {
       byId()[0].flush({ message: 'Down for maintenance' }, fail);
       store.dispatch(CatalogActions.resolveProperty({ id: 21 }));
       expect(byId().map((r) => idOf(r.request.url))).toEqual([21]);
+    });
+  });
+
+  // Found by the API audit of Nov 26, 2026.
+  describe('Out of step with the server', () => {
+    const favorites = () => http.match((r) => r.method === 'GET' && r.url.endsWith('/properties/favorites'));
+    it('reads the favorites again when a toggle was out of step (500, 404, 409), not after a lost connection', () => {
+      store.dispatch(favoritesActions.add({ propertyId: 42 }));
+      http
+        .expectOne((r) => r.method === 'POST' && r.url.endsWith('/properties/42/favorite'))
+        .flush({ message: 'Property is already a favorite' }, { status: 500, statusText: 'Server Error' });
+      expect(favorites()).toHaveLength(1);
+      store.dispatch(favoritesActions.remove({ propertyId: 42 }));
+      http
+        .expectOne((r) => r.method === 'DELETE' && r.url.endsWith('/properties/42/favorite'))
+        .flush({}, { status: 503, statusText: 'Unavailable' });
+      // A 503 keeps Retry: nothing is read again.
+      expect(favorites()).toHaveLength(0);
+    });
+
+    it('steps back from an empty CRM page left by a write, to the last page with records', () => {
+      const clients = () => http.match((r) => r.method === 'GET' && r.url.endsWith('/clients'));
+      const row = { id: 1, name: 'Haley Brooks' };
+      // The last client of page 3 was deleted: page index 2 comes back empty, 2 pages in all.
+      store.dispatch(CrmActions.loadClients({ page: 2 }));
+      clients()[0].flush({ content: [], page: 2, size: 20, totalElements: 40, totalPages: 2 });
+      const back = clients();
+      expect(back.map((r) => r.request.params.get('page'))).toEqual(['1']);
+      back[0].flush({ content: [row], page: 1, size: 20, totalElements: 40, totalPages: 2 });
+      expect(clients()).toHaveLength(0);
+      // The first page empty is the answer itself ("Clients you add appear here").
+      store.dispatch(CrmActions.loadClients({ page: 0 }));
+      clients()[0].flush({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 });
+      expect(clients()).toHaveLength(0);
+    });
+
+    it('does not read again a portfolio or holding just deleted (the backend answers 404)', () => {
+      store.dispatch(portfolioActions.select({ id: 2 }));
+      http.match((r) => r.url.includes('/portfolios/2/')).forEach((r) => r.flush({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }));
+      store.dispatch(portfolioActions.mutate({ mutation: { kind: 'remove-portfolio', id: 2 } }));
+      http.expectOne((r) => r.method === 'DELETE' && r.url.endsWith('/portfolios/2')).flush(null);
+      expect(http.match((r) => r.url.includes('/portfolios/2/'))).toHaveLength(0);
+      http.match((r) => r.method === 'GET' && r.url.endsWith('/portfolios')).forEach((r) => r.flush({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }));
     });
   });
 });

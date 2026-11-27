@@ -1,4 +1,6 @@
 import { RequestStatus } from '../../../shared/components/request-status';
+import { SignInPrompt } from '../../../shared/components/sign-in-prompt';
+import { KeycloakService } from '../../../core/auth/keycloak.service';
 import { AfterViewInit, Component, DestroyRef, OnDestroy, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
@@ -49,13 +51,15 @@ export type BaseLayer = 'street' | 'satellite' | 'terrain';
  */
 @Component({
   selector: 'gz-parcel-explorer',
-  imports: [RequestStatus, RouterLink, SearchBar, Icon, DatePipe, DecimalPipe, GrowthPanel],
+  imports: [RequestStatus, SignInPrompt, RouterLink, SearchBar, Icon, DatePipe, DecimalPipe, GrowthPanel],
   providers: [MapRenderService],
   templateUrl: './map.html',
   styleUrl: './map.css',
 })
 export class Map implements AfterViewInit, OnDestroy {
   private store = inject(Store);
+  /** Parcels and layers need an account (401 otherwise): a guest is asked to sign in, and no map starts. */
+  readonly signedIn = inject(KeycloakService).isLoggedIn();
   private destroy = inject(DestroyRef);
   private render = inject(MapRenderService);
   private dialog = inject(MatDialog);
@@ -101,6 +105,7 @@ export class Map implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit() {
+    if (!this.signedIn) return;
     this.render.initMap();
     this.zoom.set(this.render.getZoom());
     // The layer catalog rarely changes: read it once per session.
@@ -312,7 +317,7 @@ export class Map implements AfterViewInit, OnDestroy {
   }
   ngOnDestroy() {
     clearTimeout(this.timeout);
-    this.store.dispatch(A.clearParcels());
+    if (this.signedIn) this.store.dispatch(A.clearParcels());
     this.render.destroy();
   }
 }

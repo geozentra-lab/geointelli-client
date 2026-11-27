@@ -36,6 +36,12 @@ const id = (v: number | null) => (v && v > 0 ? v : undefined);
   template: `
     <gz-record-section>
       <form class="cf" (ngSubmit)="create()">
+        @if (crm().options.failed && kind() !== 'clients') {
+          <p class="cf-hint cf-wide" role="alert">
+            Your clients, leads and deals could not all be loaded, so the lists below may be missing some.
+            <button type="button" class="linkbtn" (click)="retryOptions()">Retry</button>
+          </p>
+        }
         @switch (kind()) {
           @case ('clients') {
             <div class="formfield cf-wide">
@@ -210,7 +216,9 @@ export class CrmForm {
   readonly saving = computed(() => this.crm().saving > 0);
   readonly tried = signal(false);
   /** Retried submissions of the same lead reuse this key, so the server never duplicates it. */
+  /** The server refuses a reused key with different input (409): an edited lead gets a fresh key. */
   private leadKey = crypto.randomUUID();
+  private leadKeyBody = '';
   private submitted = false;
 
   readonly f = signal<Fields>({
@@ -232,7 +240,13 @@ export class CrmForm {
   }
 
   readonly noun = computed(() => ({ clients: 'client', leads: 'lead', tasks: 'task', deals: 'deal' })[this.kind()]);
-  readonly noClients = computed(() => this.crm().options.loaded && !this.crm().options.clients.length);
+  /** No client yet, as far as the list says: not when the list could not be read. */
+  readonly noClients = computed(
+    () => this.crm().options.loaded && !this.crm().options.failed && !this.crm().options.clients.length,
+  );
+  retryOptions() {
+    this.w.store.dispatch(A.loadOptions());
+  }
   readonly clientLeads = computed(() => this.crm().options.leads.filter((l) => l.clientId === this.f().clientId));
 
   constructor() {
@@ -280,14 +294,14 @@ export class CrmForm {
       case 'clients':
         this.w.store.dispatch(A.createClient({ request: { name: f.name.trim(), email: text(f.email), phone: text(f.phone), notes: text(f.notes) } }));
         return;
-      case 'leads':
-        this.w.store.dispatch(
-          A.createLead({
-            request: { clientId: f.clientId!, propertyId: id(f.propertyId), title: f.title.trim(), source: f.source.trim(), notes: text(f.notes) },
-            idempotencyKey: this.leadKey,
-          }),
-        );
+      case 'leads': {
+        const request = { clientId: f.clientId!, propertyId: id(f.propertyId), title: f.title.trim(), source: f.source.trim(), notes: text(f.notes) };
+        const body = JSON.stringify(request);
+        if (this.leadKeyBody && body !== this.leadKeyBody) this.leadKey = crypto.randomUUID();
+        this.leadKeyBody = body;
+        this.w.store.dispatch(A.createLead({ request, idempotencyKey: this.leadKey }));
         return;
+      }
       case 'tasks':
         this.w.store.dispatch(
           A.createTask({

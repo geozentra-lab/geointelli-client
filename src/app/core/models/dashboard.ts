@@ -1,4 +1,5 @@
-import { HoldingOccupancy, PortfolioGeography, PortfolioMetric } from './api';
+import { FinancialCategory, HoldingOccupancy, PortfolioGeography, PortfolioMetric } from './api';
+import { OpportunityFactor } from './opportunity';
 import { CrmTaskStatus, CrmTransactionStage, LeadStage } from './crm';
 
 /**
@@ -150,4 +151,120 @@ export interface InvestorValueEquityDebtCardDTO extends InvestorCardBase {
   valuationSources: string[];
   valuationSource: string;
   debtSource: string;
+}
+
+/** Whole calendar months of the income card, both included, in UTC. */
+export interface InvestorPeriod {
+  fromMonth: string;
+  toMonth: string;
+  fromDate: string;
+  toDate: string;
+  months: number;
+  timeZone: string;
+}
+/**
+ * GET /dashboards/investor/income-expenses-returns: recorded cash (actual) and contract-rent figures
+ * (projected) over the same whole months, the last 12 complete ones by default. The two sections are
+ * never added together; projected NOI is never calculated (holdings store no operating costs).
+ */
+export interface InvestorIncomeExpensesReturnsCardDTO extends CardBase {
+  portfolioId: number | null;
+  portfolioCount: number;
+  currency: string;
+  period: InvestorPeriod | null;
+  /** Null on an ERROR card. */
+  totalHoldings: number | null;
+  actual: {
+    basis: string;
+    /** RECORDED with at least one record in the period, NO_RECORDS otherwise. */
+    status: 'RECORDED' | 'NO_RECORDS' | string;
+    income: number;
+    expenses: number;
+    /** income - expenses; not profit. */
+    cashFlow: number;
+    recordCount: number;
+    holdingsWithRecords: number;
+    holdingsWithoutRecords: number;
+    categories: {
+      category: FinancialCategory;
+      type: 'INCOME' | 'EXPENSE';
+      amount: number;
+      recordCount: number;
+    }[];
+    /** A missing cost, not a cost of 0. */
+    expenseCategoriesWithoutRecords: FinancialCategory[];
+    recordsUpdatedAt: string | null;
+  } | null;
+  projected: {
+    basis: string;
+    /** AVAILABLE when at least one rented holding has a contract rent. */
+    status: 'AVAILABLE' | 'UNAVAILABLE' | string;
+    rentedHoldings: number;
+    holdingsWithRent: number;
+    monthlyGrossRent: number | null;
+    annualGrossRent: number | null;
+    /** Contract rent of the period; comparable with actual.income. */
+    periodGrossRent: number | null;
+    /** annualGrossRent / purchase price × 100; null when a purchase price is missing. */
+    grossYieldPercent: number | null;
+    netOperatingIncome: null;
+    missingInputs: string[];
+    reason: string | null;
+  } | null;
+  note: string | null;
+}
+/** One listed opportunity: the stored score (SCRUM-76) and whether the investor already holds it. */
+export interface InvestorOpportunityItem {
+  propertyId: number;
+  folio: string | null;
+  address: string | null;
+  city: string | null;
+  zip: string | null;
+  countyName: string | null;
+  stateCode: string | null;
+  score: number;
+  maxScore: number;
+  /** Share of the evidence that was available; the score never exceeds it. */
+  coveragePercent: number | null;
+  estimatedValue: number | null;
+  forecastGrowth1yPct: number | null;
+  factors: OpportunityFactor[];
+  valuationDataThrough: string | null;
+  scoredAt: string | null;
+  alreadyHeld: boolean;
+}
+/**
+ * GET /dashboards/investor/opportunities: the best stored opportunity scores, read from the shared
+ * opportunity service; EMPTY with that service's reason (candidateStatus) when it has none.
+ */
+export interface InvestorOpportunitiesCardDTO extends CardBase {
+  portfolioId: number | null;
+  portfolioCount: number;
+  scoreVersion: string | null;
+  /** OK, NO_MATCHES, NO_ELIGIBLE_OPPORTUNITIES or NOT_SCORED. */
+  candidateStatus: string | null;
+  limit: number | null;
+  totalCandidates: number | null;
+  items: InvestorOpportunityItem[];
+  notes: string[];
+  note: string | null;
+}
+/**
+ * GET /dashboards/investor: the four investor cards for one scope in one response. A card the
+ * server could not build keeps its place with status ERROR (listed in failedCards, status PARTIAL);
+ * when none can be built the request answers 503.
+ */
+export interface InvestorDashboardDTO {
+  scope: 'ALL_PORTFOLIOS' | 'PORTFOLIO' | string;
+  portfolioId: number | null;
+  portfolioCount: number;
+  status: 'OK' | 'EMPTY' | 'PARTIAL' | string;
+  failedCards: string[];
+  generatedAt: string;
+  period: InvestorPeriod | null;
+  valueEquityDebt: InvestorValueEquityDebtCardDTO | null;
+  incomeExpensesReturns: InvestorIncomeExpensesReturnsCardDTO | null;
+  occupancyExposure: InvestorOccupancyExposureCardDTO | null;
+  opportunities: InvestorOpportunitiesCardDTO | null;
+  note: string | null;
 }

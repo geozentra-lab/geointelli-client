@@ -13,6 +13,12 @@ const WRITE_TIMEOUT_MS = 30000;
  * default is not retried after timing out: the server is still working on the first attempt.
  */
 export const READ_TIMEOUT = new HttpContextToken<number>(() => READ_TIMEOUT_MS);
+/**
+ * A longer limit for one write the server answers only when its work is done: a full opportunity
+ * rescore (minutes) or a county CSV upload (up to 1 GB). Writes are never retried, so a write cut
+ * off by the default limit failed on screen while the server kept going.
+ */
+export const WRITE_TIMEOUT = new HttpContextToken<number>(() => WRITE_TIMEOUT_MS);
 /** Bounded recovery for safe reads only. Writes are never replayed automatically. */
 export const errorInterceptor: HttpInterceptorFn = (request, next) => {
   if (
@@ -24,7 +30,8 @@ export const errorInterceptor: HttpInterceptorFn = (request, next) => {
   // A 403 can mean the token predates a revocation: the account slice gets a new one and reads the
   // entitlements again, and the shell leaves an area that is no longer allowed.
   const store = inject(Store, { optional: true });
-  const limit = request.method === 'GET' ? request.context.get(READ_TIMEOUT) : WRITE_TIMEOUT_MS;
+  const limit =
+    request.method === 'GET' ? request.context.get(READ_TIMEOUT) : request.context.get(WRITE_TIMEOUT);
   return next(request).pipe(
     timeout({ each: limit }),
     retry({

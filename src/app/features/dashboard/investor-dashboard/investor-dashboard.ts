@@ -5,14 +5,14 @@ import { PageHeading } from '../../../shared/components/page-heading';
 import { TABLE_KIT } from '../../../shared/table';
 import { countOf, formatRecordDate, joinParts, plainNote } from '../../../shared/data/format';
 import { labelFor } from '../../../shared/pipes/label.pipe';
-import { HoldingOccupancy, PortfolioMetric, PortfolioSummaryDTO } from '../../../core/models/api';
-import { InvestorOccupancyExposureCardDTO } from '../../../core/models/dashboard';
-import { InvestorDashboardActions as A } from '../../../store/investor-dashboard/investor-dashboard.actions';
+import { HoldingOccupancy, PortfolioMetric } from '../../../core/models/api';
 import {
-  selectInvestorDashboard,
-  selectSummaryTarget,
-} from '../../../store/investor-dashboard/investor-dashboard.selectors';
-import { Kpi, KpiCoverage, usdCompact } from '../dash-ui';
+  InvestorIncomeExpensesReturnsCardDTO,
+  InvestorOccupancyExposureCardDTO,
+} from '../../../core/models/dashboard';
+import { InvestorDashboardActions as A } from '../../../store/investor-dashboard/investor-dashboard.actions';
+import { selectInvestorDashboard } from '../../../store/investor-dashboard/investor-dashboard.selectors';
+import { Kpi, KpiCoverage, opportunityEmptyText, usdCompact } from '../dash-ui';
 import { OVERVIEW_STYLES, OverviewSection } from '../overview-ui';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -39,15 +39,20 @@ const usd = new Intl.NumberFormat('en-US', {
   currency: 'USD',
   maximumFractionDigits: 0,
 });
-type Category = NonNullable<PortfolioSummaryDTO['financials']>['categories'][number];
+type Category = NonNullable<InvestorIncomeExpensesReturnsCardDTO['actual']>['categories'][number];
+/** "Nov 2025": a whole month of the income card, read as a calendar month (no time zone shift). */
+const MONTH = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const monthDate = (yyyyMm: string) => new Date(yyyyMm + '-01T00:00:00Z');
 
 /**
- * Investor overview (DESIGN.md §6, §8): the lead is the portfolio summary strip (value, debt and
- * equity of the scope, by ownership share), each partial figure labelled "Partial: N of M …" with
- * its coverage bar, and the one action that raises coverage: holdings without a loan balance (the
- * debt metric's uncovered holdings) and "Add balances in Portfolio". Then two columns: occupancy
- * (as reported) and cash flow (recorded income and expenses, which exist per portfolio only).
- * Nothing is recalculated here; every count comes from the cards.
+ * Investor overview (DESIGN.md §6, §8; SOW IV "Residential Investor"), from the four cards of
+ * GET /dashboards/investor for the scope in one request. The lead is the portfolio summary strip
+ * (value, debt and equity, by ownership share), each partial figure labelled "Partial: N of M …"
+ * with its coverage bar, and the one action that raises coverage: holdings without a loan balance
+ * and "Add balances in Portfolio". Then two columns: occupancy (as reported, with exposure by
+ * county) and income and returns (recorded cash over the last 12 complete months, for one
+ * portfolio or all of them; contract rent and gross yield kept apart, never added to it). Last, the
+ * best stored opportunity scores, holdings marked. Nothing is recalculated here.
  *
  * The holding pane can't be opened from here (Portfolio has no holding route or parameter), so
  * the action opens Portfolio (PROGRESS.md, needs store or route work).
@@ -75,7 +80,7 @@ type Category = NonNullable<PortfolioSummaryDTO['financials']>['categories'][num
     </gz-heading>
     @let v = shownValue();
     @let o = shownOccupancy();
-    @let s = d().summary.value;
+    @let ie = shownIncome();
     <section
       gz-overview-section
       #leadSection
@@ -243,85 +248,168 @@ type Category = NonNullable<PortfolioSummaryDTO['financials']>['categories'][num
         <section
           gz-overview-section
           #cashSection
-          heading="Cash flow"
+          heading="Income and returns"
           [caption]="cashCaption()"
-          [busy]="d().summary.loading && !!s"
+          [busy]="d().incomeExpensesReturns.loading && !!ie"
         >
-          @if (target() === null) {
-            <p class="ov-text">
-              Income and expenses are recorded per portfolio. Choose one portfolio above to see its
-              cash flow.
-            </p>
-          } @else if (d().summary.error) {
+          @if (d().incomeExpensesReturns.error) {
             <div class="insight danger ov-alert" role="alert">
-              <span>Cash flow could not load.</span>
-              <button type="button" class="btn small" (click)="cashSection.retried(); reloadSummary()">
-                Retry
-              </button>
+              <span>Income and returns could not load.</span>
+              <button type="button" class="btn small" (click)="cashSection.retried(); reload()">Retry</button>
             </div>
-          } @else if (!s) {
+          } @else if (!ie) {
             @for (i of skeleton; track i) {
               <div class="row-skeleton" aria-hidden="true"></div>
             }
-          } @else if (!s.financials) {
-            <div class="insight danger ov-alert" role="alert">
-              <span>Income and expenses were not returned for {{ s.portfolioName }}.</span>
-              <button type="button" class="btn small" (click)="cashSection.retried(); reloadSummary()">
-                Retry
-              </button>
-            </div>
-          } @else if (!s.financials.recordCount) {
-            <div class="ov-empty">
-              <p>
-                Income and expenses you record for {{ s.portfolioName }} will appear here, by
-                category.
-              </p>
-              <a class="btn" routerLink="/portfolio">Record income or an expense</a>
-            </div>
+          } @else if (!ie.totalHoldings) {
+            <p class="ov-text">Income, expenses and rent will appear here once you add a holding.</p>
           } @else {
-            @let f = s.financials;
-            <dl class="kpi-row">
-              <div gz-kpi label="Income" [value]="money(f.income)"></div>
-              <div gz-kpi label="Expenses" [value]="money(f.expenses)"></div>
-              <div
-                gz-kpi
-                label="Net cash flow"
-                [value]="signedCompact(f.cashFlow)"
-                [coverage]="cashCoverage()"
-              ></div>
-            </dl>
-            <table gz-table class="ov-table iv-cats" sticky="none">
-              <caption class="sr-only">Income and expenses by category</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Category</th>
-                  <th scope="col" data-priority="2">Type</th>
-                  <th scope="col" class="num" data-priority="2">Records</th>
-                  <th scope="col" class="num">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (c of categories(f.categories); track c.category) {
+            @let f = ie.actual;
+            @if (!f || f.status !== 'RECORDED') {
+              <div class="ov-empty">
+                <p>No income or expense was recorded {{ periodWords() }}.</p>
+                <a class="btn" routerLink="/portfolio">Record income or an expense</a>
+              </div>
+            } @else {
+              <dl class="kpi-row">
+                <div gz-kpi label="Income" [value]="money(f.income)"></div>
+                <div gz-kpi label="Expenses" [value]="money(f.expenses)"></div>
+                <div
+                  gz-kpi
+                  label="Net cash flow"
+                  [value]="signedCompact(f.cashFlow)"
+                  [coverage]="cashCoverage()"
+                ></div>
+              </dl>
+              <table gz-table class="ov-table iv-cats" sticky="none">
+                <caption class="sr-only">Income and expenses by category</caption>
+                <thead>
                   <tr>
-                    <td>
-                      {{ category(c.category) }}
-                      <span class="cell-sub m-only">{{ c.type === 'INCOME' ? 'Income' : 'Expense' }}</span>
-                    </td>
-                    <td data-priority="2">{{ c.type === 'INCOME' ? 'Income' : 'Expense' }}</td>
-                    <td class="num" data-priority="2">{{ c.recordCount }}</td>
-                    <td class="num" [class.positive]="c.type === 'INCOME'" [class.negative]="c.type !== 'INCOME'">
-                      {{ signedFull(c) }}
-                    </td>
+                    <th scope="col">Category</th>
+                    <th scope="col" data-priority="2">Type</th>
+                    <th scope="col" class="num" data-priority="2">Records</th>
+                    <th scope="col" class="num">Amount</th>
                   </tr>
-                }
-              </tbody>
-            </table>
-            @if (plainNote(f.note); as note) {
+                </thead>
+                <tbody>
+                  @for (c of categories(f.categories); track c.category) {
+                    <tr>
+                      <td>
+                        {{ category(c.category) }}
+                        <span class="cell-sub m-only">{{ c.type === 'INCOME' ? 'Income' : 'Expense' }}</span>
+                      </td>
+                      <td data-priority="2">{{ c.type === 'INCOME' ? 'Income' : 'Expense' }}</td>
+                      <td class="num" data-priority="2">{{ c.recordCount }}</td>
+                      <td class="num" [class.positive]="c.type === 'INCOME'" [class.negative]="c.type !== 'INCOME'">
+                        {{ signedFull(c) }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              @if (missingCosts(); as missing) {
+                <p class="ov-note">No record of {{ missing }}: a missing cost, not a cost of $0.</p>
+              }
+            }
+            @let r = ie.projected;
+            <h3 class="ov-sub">Contract rent</h3>
+            @if (r && r.status === 'AVAILABLE') {
+              <dl class="kpi-row">
+                <div gz-kpi label="Rent a month" [value]="money(r.monthlyGrossRent)" [caption]="rentCaption()"></div>
+                <div
+                  gz-kpi
+                  label="Rent for the period"
+                  [value]="money(r.periodGrossRent)"
+                  caption="Comparable with recorded income"
+                ></div>
+                <div
+                  gz-kpi
+                  label="Gross yield"
+                  [value]="pct(r.grossYieldPercent, 1)"
+                  caption="Annual rent ÷ purchase price"
+                  unavailable="A purchase price is missing"
+                ></div>
+              </dl>
+              <p class="ov-note">
+                Today's lease figures, kept apart from the recorded cash above and never added to it.
+                Net operating income isn't worked out: holdings store no operating costs.
+              </p>
+            } @else {
+              <p class="ov-text">{{ rentUnavailable() }}</p>
+            }
+            @if (plainNote(ie.note); as note) {
               <p class="ov-note">{{ note }}</p>
             }
           }
         </section>
       </div>
+      @let op = shownOpportunities();
+      <section
+        gz-overview-section
+        #oppSection
+        heading="Opportunities"
+        [caption]="oppCaption()"
+        [busy]="d().opportunities.loading && !!op"
+      >
+        <a actions class="ov-link" routerLink="/opportunities">Open Opportunities</a>
+        @if (d().opportunities.error) {
+          <div class="insight danger ov-alert" role="alert">
+            <span>Opportunities could not load.</span>
+            <button type="button" class="btn small" (click)="oppSection.retried(); reload()">Retry</button>
+          </div>
+        } @else if (!op) {
+          @for (i of skeleton; track i) {
+            <div class="row-skeleton" aria-hidden="true"></div>
+          }
+        } @else if (!op.items.length) {
+          <p class="ov-text">{{ oppEmpty(op.candidateStatus ?? '') }}</p>
+        } @else {
+          <table gz-table class="ov-table iv-opp" sticky="none">
+            <caption class="sr-only">Highest opportunity scores, best first</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="num">Rank</th>
+                <th scope="col">Property</th>
+                <th scope="col" class="num">Score, of 100</th>
+                <th scope="col" class="num" data-priority="2">ZentraValue</th>
+                <th scope="col" class="num" data-priority="2">Next 12 months</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (o of op.items; track o.propertyId; let i = $index) {
+                <tr>
+                  <td class="num">{{ i + 1 }}</td>
+                  <td>
+                    <a [routerLink]="['/property', o.propertyId]">{{ o.address || 'Folio ' + o.folio }}</a>
+                    <span class="cell-sub">{{ place(o.city, o.countyName, o.stateCode) }}</span>
+                    @if (o.alreadyHeld) {
+                      <span class="cell-sub iv-held">In your portfolio</span>
+                    }
+                  </td>
+                  <td class="num">
+                    <b>{{ score(o.score) }}</b>
+                    @if (o.coveragePercent !== null) {
+                      <span class="cell-sub">Evidence covers {{ score(o.coveragePercent) }} of {{ o.maxScore }}</span>
+                    }
+                  </td>
+                  <td gz-cell class="num" data-priority="2" [missing]="o.estimatedValue === null"
+                    reason="No estimate was stored with this score">
+                    {{ money(o.estimatedValue) }}
+                  </td>
+                  <td gz-cell class="num" data-priority="2" [missing]="o.forecastGrowth1yPct === null"
+                    reason="No one-year forecast was stored with this score">
+                    {{ signedPct(o.forecastGrowth1yPct) }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <p class="ov-note">
+            Scores are research input, not advice: each one is stored with its evidence, and
+            Opportunities explains it.
+          </p>
+        }
+      </section>
     }`,
   styles: [
     OVERVIEW_STYLES,
@@ -358,6 +446,16 @@ type Category = NonNullable<PortfolioSummaryDTO['financials']>['categories'][num
         background: var(--ink);
         border-radius: 0 2px 2px 0;
       }
+      .ov-cols + .overview-section {
+        margin-top: var(--sp-24);
+      }
+      .iv-held {
+        color: var(--copper);
+        font-weight: 600;
+      }
+      .iv-opp td:first-child {
+        width: 1%;
+      }
       @media (max-width: 700px) {
         .ov-scope {
           width: 100%;
@@ -375,14 +473,14 @@ export class InvestorDashboard {
   /** Backend notes without developer field names (DESIGN.md §13). */
   readonly plainNote = plainNote;
   readonly d = this.w.store.selectSignal(selectInvestorDashboard);
-  readonly target = this.w.store.selectSignal(selectSummaryTarget);
   readonly skeleton = [0, 1, 2];
   readonly countOf = countOf;
   readonly joinParts = joinParts;
   readonly noPortfolio = computed(() => this.d().portfolios.value?.content.length === 0);
   /** The all-portfolios holding count, as the card for that scope sends it (never summed here). */
   readonly allHoldingsText = computed(() => {
-    const v = this.d().valueEquityDebt.value;
+    // Through shownValue: a failed card's stand-in has no holdings count (null).
+    const v = this.shownValue();
     return v && v.portfolioId === null ? ' · ' + countOf(v.totalHoldings, 'holding') : '';
   });
   readonly scopeLabel = computed(() => {
@@ -397,14 +495,18 @@ export class InvestorDashboard {
    * elsewhere, the slice moves the scope to all portfolios but nothing asks again, so a card of
    * another scope is never shown (the section waits) and the component asks for the scope in view.
    */
-  readonly shownValue = computed(() => {
-    const v = this.d().valueEquityDebt.value;
-    return v && v.portfolioId === this.d().portfolioId ? v : null;
-  });
-  readonly shownOccupancy = computed(() => {
-    const o = this.d().occupancyExposure.value;
-    return o && o.portfolioId === this.d().portfolioId ? o : null;
-  });
+  readonly shownValue = computed(() => this.shown(this.d().valueEquityDebt.value));
+  readonly shownOccupancy = computed(() => this.shown(this.d().occupancyExposure.value));
+  readonly shownIncome = computed(() => this.shown(this.d().incomeExpensesReturns.value));
+  readonly shownOpportunities = computed(() => this.shown(this.d().opportunities.value));
+  /**
+   * A card for the scope in view, never the backend's stand-in for a card that failed: that one
+   * carries only its status and error (items, totals and holdings are null), and the section says
+   * the failure with Retry instead.
+   */
+  private shown<T extends { portfolioId: number | null; status: string }>(card: T | null): T | null {
+    return card && card.portfolioId === this.d().portfolioId && card.status !== 'ERROR' ? card : null;
+  }
   readonly leadCaption = computed(() => {
     const v = this.shownValue();
     if (!v || !v.totalHoldings || this.d().valueEquityDebt.error) return '';
@@ -438,26 +540,63 @@ export class InvestorDashboard {
       ? `${countOf(o.totalHoldings, 'holding')}, as you reported them`
       : '';
   });
+  /** The whole months of the income card: "Nov 2025 to Oct 2026", with the record count. */
   readonly cashCaption = computed(() => {
-    const s = this.d().summary.value;
-    const f = s?.financials;
-    if (this.target() === null || !s || !f || this.d().summary.error) return '';
+    const c = this.shownIncome();
+    if (!c || !c.totalHoldings || this.d().incomeExpensesReturns.error) return '';
     return joinParts(
       ' · ',
-      s.portfolioName,
-      this.range(f.fromDate, f.toDate),
-      labelFor(f.basis),
-      f.recordCount ? countOf(f.recordCount, 'record') : null,
+      this.months(),
+      c.actual?.recordCount ? countOf(c.actual.recordCount, 'record') : null,
+      c.actual?.recordsUpdatedAt ? 'updated ' + formatRecordDate(c.actual.recordsUpdatedAt) : null,
     );
+  });
+  readonly months = computed(() => {
+    const p = this.shownIncome()?.period;
+    if (!p) return '';
+    const a = MONTH.format(monthDate(p.fromMonth));
+    const b = MONTH.format(monthDate(p.toMonth));
+    return a === b ? a : `${a} to ${b}`;
+  });
+  /** "from Nov 2025 to Oct 2026", for sentences. */
+  readonly periodWords = computed(() => {
+    const m = this.months();
+    return m.includes(' to ') ? 'from ' + m : m ? 'in ' + m : 'in this period';
   });
 
   /** Cash flow is complete by definition (recorded amounts): coverage without the Partial label. */
   readonly cashCoverage = computed<KpiCoverage | null>(() => {
-    const f = this.d().summary.value?.financials;
-    return f
-      ? { covered: f.holdingsWithRecords, total: f.totalHoldings, noun: 'holdings', partial: false, lead: 'From records on' }
+    const c = this.shownIncome();
+    const f = c?.actual;
+    return f && c.totalHoldings
+      ? { covered: f.holdingsWithRecords, total: c.totalHoldings, noun: 'holdings', partial: false, lead: 'From records on' }
       : null;
   });
+  /** Expense categories without a record in the period: missing costs, listed by name. */
+  readonly missingCosts = computed(() => {
+    const list = this.shownIncome()?.actual?.expenseCategoriesWithoutRecords ?? [];
+    return list.map((c) => this.category(c).toLowerCase()).join(', ');
+  });
+  readonly rentCaption = computed(() => {
+    const r = this.shownIncome()?.projected;
+    return r ? `${r.holdingsWithRent} of ${countOf(r.rentedHoldings, 'rented holding')} with a lease rent` : '';
+  });
+  /** Why the contract rent can't be shown, in the backend's words, or what it is missing. */
+  readonly rentUnavailable = computed(() => {
+    const r = this.shownIncome()?.projected;
+    const reason = plainNote(r?.reason);
+    if (reason) return reason;
+    if (r?.missingInputs?.length) return 'Missing: ' + r.missingInputs.map((m) => labelFor(m).toLowerCase()).join(', ') + '.';
+    return 'No rented holding has a lease rent recorded.';
+  });
+  readonly oppCaption = computed(() => {
+    const c = this.shownOpportunities();
+    if (!c || !c.items.length || this.d().opportunities.error) return '';
+    return c.totalCandidates !== null
+      ? `Top ${c.items.length} of ${c.totalCandidates.toLocaleString('en-US')} scored properties`
+      : `Top ${c.items.length} scored properties`;
+  });
+  readonly oppEmpty = opportunityEmptyText;
 
   /** A boolean, so the cards load once when the account arrives, not on every account change. */
   private readonly signedIn = computed(() => this.w.auth.isLoggedIn() && !!this.w.account().profile);
@@ -482,10 +621,6 @@ export class InvestorDashboard {
   reload() {
     this.askedFor = this.d().portfolioId;
     this.w.store.dispatch(A.load());
-  }
-  reloadSummary() {
-    const id = this.target();
-    if (id !== null) this.w.store.dispatch(A.loadSummary({ portfolioId: id }));
   }
   /** The select gives "" for all portfolios. */
   select(value: string) {
@@ -519,8 +654,20 @@ export class InvestorDashboard {
     if (!b) return '';
     return a && a !== b ? `${a} to ${b}` : b;
   }
-  pct(v: number | null | undefined) {
-    return v === null || v === undefined ? null : Math.round(v) + '%';
+  pct(v: number | null | undefined, digits = 0) {
+    if (v === null || v === undefined) return null;
+    return (digits ? v.toFixed(digits) : String(Math.round(v))) + '%';
+  }
+  /** "+4.2%", "−1.0%": the score's one-year forecast. */
+  signedPct(v: number | null) {
+    if (v === null) return '';
+    return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '%';
+  }
+  score(v: number) {
+    return (Math.round(v * 10) / 10).toString();
+  }
+  place(city: string | null, county: string | null, state: string | null) {
+    return joinParts(', ', city, county ? county + ' County' : null, state);
   }
   rentedCaption(o: InvestorOccupancyExposureCardDTO) {
     return o.rentalHoldings

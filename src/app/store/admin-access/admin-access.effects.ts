@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Action, Store } from '@ngrx/store';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import {
+  EMPTY,
   Observable,
   catchError,
   exhaustMap,
@@ -12,6 +13,7 @@ import {
   map,
   mergeMap,
   switchMap,
+  timer,
   withLatestFrom,
 } from 'rxjs';
 import { Page } from '../../core/models/api';
@@ -21,8 +23,11 @@ import { AdminAccessService } from '../../data-access/admin-access.service';
 import { SessionScopedEffects } from '../session-scoped-effects';
 import { UiActions } from '../ui/ui.actions';
 import { AdminAccessActions as A } from './admin-access.actions';
-import { revokeKey } from './admin-access.reducer';
+import { MAX_USER_QUERY, MIN_USER_QUERY, revokeKey, userQuery } from './admin-access.reducer';
 import { selectAdminAccess } from './admin-access.selectors';
+
+/** The pause in typing before suggestions are asked for (the backend's guidance). */
+export const USER_SEARCH_PAUSE_MS = 250;
 
 /** Said when no account signs in with the email an admin looked up (404). */
 export const NO_USER_FOR_EMAIL =
@@ -46,9 +51,15 @@ export function decisionFailure(e: unknown, notFound: string): DecisionFailure {
   }
   return { error: apiError(e), reload: false };
 }
-/** A failure that reloads the list may take its row with it, so it is also said in a toast. */
-const failureActions = (failed: Action, f: DecisionFailure): Action[] =>
-  f.reload ? [failed, UiActions.toast({ message: f.error, kind: 'error' })] : [failed];
+/**
+ * Every failed decision or revoke is also said in an error toast, which stays until it is closed
+ * (failure-toasts.effects.ts): a failure that reloads the list may take its row, and its inline
+ * message, with it.
+ */
+const failureActions = (failed: Action, f: DecisionFailure): Action[] => [
+  failed,
+  UiActions.toast({ message: f.error, kind: 'error' }),
+];
 
 /** After a row left the page: the same page again, or the one before when it was the last row. */
 function refillPage(page: number, value: Page<unknown> | null): number {
@@ -209,6 +220,25 @@ export class AdminAccessEffects extends SessionScopedEffects {
           ),
         ),
       ),
+    ),
+  );
+  /**
+   * Suggestions 250 ms after the typing stops, as the backend asks; newer text, or the list
+   * closing, cancels the wait and the request in flight. A failure is said in the list, with Retry.
+   */
+  searchUsers = createEffect(() =>
+    this.actions.pipe(
+      ofType(A.searchUsers, A.searchUsersClosed),
+      switchMap((a) => {
+        if (a.type === A.searchUsersClosed.type) return EMPTY;
+        const query = userQuery(a.query);
+        if (query.length < MIN_USER_QUERY || query.length > MAX_USER_QUERY) return EMPTY;
+        return timer(a.immediate ? 0 : USER_SEARCH_PAUSE_MS).pipe(
+          switchMap(() => this.api.searchUsers(query)),
+          map((users) => A.usersSuggested({ query, users })),
+          catchError((e) => from([A.searchUsersFailed({ query, error: apiError(e) })])),
+        );
+      }),
     ),
   );
   roleGrants = createEffect(() =>

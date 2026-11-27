@@ -25,6 +25,7 @@ import { Workspace } from '../../shared/data/workspace';
 import { countOf, joinParts } from '../../shared/data/format';
 import { CountyPicker } from '../../shared/components/county-picker';
 import { RequestStatus } from '../../shared/components/request-status';
+import { SignInPrompt } from '../../shared/components/sign-in-prompt';
 import { Icon } from '../../shared/components/icon/icon';
 import { Pager } from '../../shared/table/pager';
 import { ExploreCard } from './explore-card';
@@ -65,6 +66,7 @@ const usd = new Intl.NumberFormat('en-US', {
     FormsModule,
     RouterLink,
     CountyPicker,
+    SignInPrompt,
     RequestStatus,
     Icon,
     Pager,
@@ -76,6 +78,8 @@ const usd = new Intl.NumberFormat('en-US', {
 })
 export class Explore implements OnInit {
   readonly w = inject(Workspace);
+  /** Property reads need an account (401 otherwise): a guest is asked to sign in, and nothing is sent. */
+  readonly signedIn = this.w.auth.isLoggedIn();
   private readonly destroyRef = inject(DestroyRef);
   private readonly results = viewChild<ElementRef<HTMLElement>>('results');
   private readonly nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
@@ -111,7 +115,8 @@ export class Explore implements OnInit {
   readonly placeName = computed(() => {
     const q = this.w.catalog().query;
     const loc = this.locations();
-    const state = loc.states.find((s) => s.code === q.state)?.name ?? q.state;
+    // A saved search's state comes back in lower case ("fl"): matched without case.
+    const state = loc.states.find((s) => s.code.toUpperCase() === q.state?.toUpperCase())?.name ?? q.state;
     const county = loc.counties.find((c) => c.countyId === q.countyId)?.countyName;
     return joinParts(', ', county, state);
   });
@@ -207,6 +212,7 @@ export class Explore implements OnInit {
     // An empty answer is shown as such rather than asked for in a loop.
     effect(() => {
       const loc = this.locations();
+      if (!this.signedIn) return;
       if (loc.states.length) {
         this.statesAsked = false;
         return;
@@ -214,6 +220,19 @@ export class Explore implements OnInit {
       if (loc.loading || loc.error || this.statesAsked) return;
       this.statesAsked = true;
       untracked(() => this.w.store.dispatch(LocationsActions.loadStates()));
+    });
+    // A search that names a state the picker doesn't show (a saved search opened from Saved): the
+    // picker follows it, county too, once the state list is in.
+    effect(() => {
+      const loc = this.locations();
+      const q = this.w.catalog().query;
+      if (!loc.states.length || !q.state || loc.stateId !== null) return;
+      const state = loc.states.find((s) => s.code.toUpperCase() === q.state!.toUpperCase());
+      if (!state) return;
+      untracked(() => {
+        this.w.store.dispatch(LocationsActions.selectState({ stateId: state.id }));
+        if (q.countyId != null) this.w.store.dispatch(LocationsActions.selectCounty({ countyId: q.countyId }));
+      });
     });
     // With properties in one state only, open on it: asking to pick from a list of one is a
     // wasted click on an empty map. With several, the page asks. Once per visit, so clearing the
@@ -249,7 +268,7 @@ export class Explore implements OnInit {
 
   ngOnInit() {
     // Refresh the results the page last showed; with no state chosen yet, it asks for one first.
-    if (this.scoped()) this.w.search({}, false);
+    if (this.signedIn && this.scoped()) this.w.search({}, false);
   }
 
   chooseState(state: StateDTO) {

@@ -11,7 +11,9 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import { Title } from '@angular/platform-browser';
+import { revealWhenFirstPageIsDrawn } from './core/boot-splash';
 import { NavigationEnd, NavigationStart, Router, RouterLink, RouterOutlet } from '@angular/router';
 import type { Event as RouterEvent } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -197,6 +199,7 @@ export class App implements OnInit {
         if (this.pageOf(parseUrl(e.urlAfterRedirects)) !== from.page) this.dropHeldError();
       }
     });
+    revealWhenFirstPageIsDrawn(this.router, this.injector, inject(DOCUMENT));
     const pageTitle = inject(Title);
     effect(() => pageTitle.setTitle(this.title() + ' | GeoZentra'));
     effect(() => {

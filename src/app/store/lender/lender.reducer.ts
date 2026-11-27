@@ -114,6 +114,11 @@ export const lenderReducer = createReducer(
     organizationsLoading: false,
     organizationsError: error,
   })),
+  // Kept by Organizations loaded when it is among them (the first one otherwise); once they are
+  // read, choosing is Select organization.
+  on(A.preferOrganization, (s, { organizationId }) =>
+    s.organizationsLoaded ? s : { ...s, selectedId: organizationId },
+  ),
   on(A.selectOrganization, (s, { organizationId }) =>
     organizationId === s.selectedId ? s : { ...s, ...orgScoped, selectedId: organizationId },
   ),

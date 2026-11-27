@@ -33,6 +33,7 @@ import { PropertyValuePrediction } from '../../core/models/property_prediction_v
 import { favoritesActions as F } from '../../store/favorites/favorites.actions';
 import { savedSearchesActions as A } from '../../store/saved-searches/saved-searches.actions';
 import { CatalogActions } from '../../store/catalog/catalog.actions';
+import { LocationsActions } from '../../store/locations/locations.actions';
 import { ValuationActions } from '../../store/valuation/valuation.actions';
 import { selectValuation } from '../../store/valuation/valuation.selectors';
 import { selectLocations } from '../../store/locations/locations.selectors';
@@ -617,7 +618,11 @@ export class Saved {
     if (next) this.selectedId.set(next.id);
   }
   openInExplore(s: SavedSearchDTO) {
-    this.w.store.dispatch(CatalogActions.search({ query: { ...s.filters, page: 0, size: 20 } }));
+    // The backend stores filters in lower case ("fl"); the state goes back to its code. Explore's
+    // state picker then follows the search (a different state may be chosen there now).
+    const filters = { ...s.filters, ...(s.filters.state ? { state: s.filters.state.toUpperCase() } : {}) };
+    this.w.store.dispatch(LocationsActions.selectState({ stateId: null }));
+    this.w.store.dispatch(CatalogActions.search({ query: { ...filters, page: 0, size: 20 } }));
     void this.router.navigate(['/explore']);
   }
   async removeSearch(s: SavedSearchDTO) {

@@ -49,13 +49,16 @@
         ><span class="brand-name">GeoZentra</span></a
       >
     }
-    <!-- The search and the account tools load just after start-up, outside the initial bundle. -->
-    @defer (on idle) {
-      <gz-shell-search />
-    } @placeholder {
-      <span class="search-placeholder" aria-hidden="true"
-        ><gz-icon name="search" /><span>Search address</span></span
-      >
+    <!-- The search and the account tools load just after start-up, outside the initial bundle. The
+         search needs an account (the backend answers 401 to a guest's), so a guest isn't offered it. -->
+    @if (signedIn()) {
+      @defer (on idle) {
+        <gz-shell-search />
+      } @placeholder {
+        <span class="search-placeholder" aria-hidden="true"
+          ><gz-icon name="search" /><span>Search address</span></span
+        >
+      }
     }
     @if (!pro()) {
       <nav class="topnav" aria-label="Main">
