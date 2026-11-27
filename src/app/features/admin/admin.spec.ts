@@ -15,7 +15,7 @@ import { OpportunitiesActions as O } from '../../store/opportunities/opportuniti
 import { ImportJobDTO } from '../../core/models/import-job';
 import { DataQualityIssue, DataQualityReportDTO, ValuationRefreshRequestDTO } from '../../core/models/admin';
 import { ImportJobs } from './import-jobs';
-import { DataQuality } from './data-quality';
+import { DataQuality, RECHECK_MS } from './data-quality';
 import { ValuationOperations } from './valuation-operations';
 
 const job = (id: string, over: Partial<ImportJobDTO> = {}): ImportJobDTO => ({
@@ -59,6 +59,7 @@ const issue = (n: number, over: Partial<DataQualityIssue> = {}): DataQualityIssu
 });
 const report = (over: Partial<DataQualityReportDTO> = {}): DataQualityReportDTO => ({
   generatedAt: '2026-11-18T15:57:00Z',
+  calculating: false,
   summary: [
     { rule: 'SALE_DUPLICATE', category: 'DUPLICATE', entityType: 'SALE', source: 'sale', description: 'Sale recorded twice', issueCount: 6 },
     { rule: 'ASSESSMENT_DUPLICATE', category: 'DUPLICATE', entityType: 'ASSESSMENT', source: 'assessment', description: 'Assessment recorded twice', issueCount: 0 },
@@ -281,6 +282,76 @@ describe('Admin pages', () => {
     store.dispatch(A.dataQualityLoaded({ report: { ...r, summary: r.summary.map((x) => ({ ...x, issueCount: 0 })) } }));
     await settle();
     expect(text(el.querySelector('.dq-count'))).toMatch(/^No issues: every record passes the 2 rules/);
+  });
+
+  it('while the first count runs in the background, says so, never shows 0, and looks again on its own', async () => {
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const { el, settle } = await setup('/admin/data-quality', DataQuality);
+    const r = report();
+    store.dispatch(
+      A.dataQualityLoaded({
+        report: {
+          ...r,
+          generatedAt: null,
+          calculating: true,
+          summary: r.summary.map((x) => ({ ...x, issueCount: null, unavailableReason: 'Being counted in the background' })),
+        },
+      }),
+    );
+    await settle();
+    expect(text(el.querySelector('.dq-count'))).toMatch(/^Counting issues in the background/);
+    expect(text(el.querySelector('.dq-count'))).not.toContain('No issues');
+    const cells = [...el.querySelectorAll('.dq-rules tbody tr td.num')].map((td) => text(td));
+    expect(cells).toEqual(['Counting…', 'Counting…']);
+    // The page looks again by itself after RECHECK_MS.
+    const recheck = timers.mock.calls.find(([, ms]) => ms === RECHECK_MS);
+    expect(recheck).toBeTruthy();
+    const before = of(A.loadDataQuality.type).length;
+    (recheck![0] as () => void)();
+    expect(of(A.loadDataQuality.type).length).toBe(before + 1);
+    expect(of(A.loadDataQuality.type).at(-1)).toMatchObject({ rule: null, page: 0 });
+    timers.mockRestore();
+  });
+
+  it('shows a rule that could not be counted as not counted with the reason, and totals only the counted rules', async () => {
+    const { el, settle } = await setup('/admin/data-quality', DataQuality);
+    const r = report();
+    store.dispatch(
+      A.dataQualityLoaded({
+        report: {
+          ...r,
+          summary: [
+            r.summary[0],
+            { ...r.summary[1], issueCount: null, unavailableReason: 'Counting took longer than 120 seconds and was stopped' },
+          ],
+        },
+      }),
+    );
+    await settle();
+    expect(text(el.querySelector('.dq-count'))).toMatch(/^6 issues across the 1 rule counted · 1 rule not counted · counted at \d/);
+    const second = el.querySelectorAll('.dq-rules tbody tr')[1];
+    expect(text(second)).toContain('Not counted: Counting took longer than 120 seconds and was stopped');
+    expect(text(second.querySelector('td.num'))).toBe('Not counted');
+  });
+
+  it('lists the issues of a rule without a count page by page, without claiming a total', async () => {
+    const { el, settle } = await setup('/admin/data-quality?rule=SALE_DUPLICATE', DataQuality);
+    const r = report();
+    store.dispatch(
+      A.dataQualityLoaded({
+        report: {
+          ...r,
+          summary: [{ ...r.summary[0], issueCount: null, unavailableReason: 'Could not be counted' }, r.summary[1]],
+          rule: 'SALE_DUPLICATE',
+          issues: page([issue(1)]),
+        },
+      }),
+    );
+    await settle();
+    expect(text(el.querySelector('.dq-sub'))).toBe(
+      'This rule has no count yet, so its issues are listed page by page without a total.',
+    );
+    expect(el.querySelectorAll('.dq-issue-table tbody tr').length).toBe(1);
   });
 
   it('opens a failed revaluation with Retry and Cancel, keeps its code under Details, and moves to the retry', async () => {

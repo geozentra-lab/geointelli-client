@@ -33,22 +33,22 @@ describe('Bounded request recovery', () => {
     let failed: unknown = null;
     client
       .get(environment.apiUrl + '/admin/data-quality/issues', {
-        context: new HttpContext().set(READ_TIMEOUT, 180_000),
+        context: new HttpContext().set(READ_TIMEOUT, 45_000),
       })
       .subscribe({ next: (r) => (result = r), error: (e) => (failed = e) });
-    // Well past the 12 s default: still waiting for the server's first count.
-    await vi.advanceTimersByTimeAsync(60_000);
+    // Past the 12 s default: an issue page may take up to the server's 30 s limit.
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(failed).toBeNull();
     http.expectOne((r) => r.url.endsWith('/data-quality/issues')).flush({ rules: [] });
     expect(result).toEqual({ rules: [] });
 
     client
       .get(environment.apiUrl + '/admin/data-quality/issues', {
-        context: new HttpContext().set(READ_TIMEOUT, 180_000),
+        context: new HttpContext().set(READ_TIMEOUT, 45_000),
       })
       .subscribe({ error: (e) => (failed = e) });
     http.expectOne((r) => r.url.endsWith('/data-quality/issues'));
-    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.advanceTimersByTimeAsync(45_000);
     expect((failed as HttpErrorResponse).status).toBe(0);
     await vi.advanceTimersByTimeAsync(5000);
     http.expectNone((r) => r.url.endsWith('/data-quality/issues'));

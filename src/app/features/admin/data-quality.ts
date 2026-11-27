@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, effect, inject, untracked, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, untracked, viewChild } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -14,6 +14,9 @@ import { AdminActions as A } from '../../store/admin/admin.actions';
 import { selectAdmin } from '../../store/admin/admin.selectors';
 import { DataQualityIssue, DataQualityRule } from '../../core/models/admin';
 import { AdminGate, adminAccess } from './admin-gate';
+
+/** How soon the page looks again while the server counts in the background (SCRUM-206). */
+export const RECHECK_MS = 15_000;
 
 /**
  * Data quality (DESIGN.md §5 Register, Data quality): every rule with its count as a table; choosing
@@ -36,19 +39,29 @@ import { AdminGate, adminAccess } from './admin-gate';
     } @else {
       <gz-request-status
         [loading]="s().quality.loading && !report()"
-        loadingText="Counting issues across every record. The first count in 10 minutes can take a few minutes."
+        loadingText="Loading the data-quality report…"
         [error]="s().quality.error"
         (retry)="refresh()"
       />
       @if (report(); as r) {
         <p class="dq-count" role="status">
-          @if (total()) {
-            {{ countOf(total(), 'issue') }} across {{ countOf(r.summary.length, 'rule') }}
+          @if (!r.generatedAt) {
+            Counting issues in the background across every record. This can take a few minutes; the counts appear here on their own.
           } @else {
-            No issues: every record passes the {{ countOf(r.summary.length, 'rule') }}
-          }
-          @if (time(r.generatedAt); as at) {
-            · counted at {{ at }}
+            @if (uncounted()) {
+              {{ countOf(total(), 'issue') }} across the {{ countOf(r.summary.length - uncounted(), 'rule') }} counted ·
+              {{ countOf(uncounted(), 'rule') }} not counted
+            } @else if (total()) {
+              {{ countOf(total(), 'issue') }} across {{ countOf(r.summary.length, 'rule') }}
+            } @else {
+              No issues: every record passes the {{ countOf(r.summary.length, 'rule') }}
+            }
+            @if (time(r.generatedAt); as at) {
+              · counted at {{ at }}
+            }
+            @if (r.calculating) {
+              · counting again in the background
+            }
           }
         </p>
         <table
@@ -74,10 +87,17 @@ import { AdminGate, adminAccess } from './admin-gate';
                 <td>
                   <span class="cell-main">{{ x.description }}</span>
                   <span class="m-only cell-sub">{{ label(x.category) }}</span>
+                  @if (x.issueCount === null && r.generatedAt && x.unavailableReason) {
+                    <span class="cell-sub">Not counted: {{ x.unavailableReason }}</span>
+                  }
                 </td>
                 <td data-priority="2">{{ label(x.category) }}</td>
                 <td data-priority="3">{{ x.source }}</td>
-                <td class="num" [class.dq-zero]="!x.issueCount">{{ x.issueCount | number }}</td>
+                @if (x.issueCount === null) {
+                  <td class="num dq-zero">{{ r.generatedAt ? 'Not counted' : 'Counting…' }}</td>
+                } @else {
+                  <td class="num" [class.dq-zero]="!x.issueCount">{{ x.issueCount | number }}</td>
+                }
               </tr>
             }
           </tbody>
@@ -93,7 +113,13 @@ import { AdminGate, adminAccess } from './admin-gate';
               <button type="button" class="linkbtn" (click)="hide()">Hide issues</button>
             </div>
             @if (r.rule === rule() && r.issues; as page) {
-              <p class="dq-sub">{{ countOf(page.totalElements, 'issue') }}</p>
+              <p class="dq-sub">
+                @if (ruleCounted()) {
+                  {{ countOf(page.totalElements, 'issue') }}
+                } @else {
+                  This rule has no count yet, so its issues are listed page by page without a total.
+                }
+              </p>
               <table gz-table class="dq-issue-table" [attr.aria-busy]="s().quality.loading ? 'true' : null">
                 <caption class="sr-only">Issues of the rule "{{ ruleName() }}"</caption>
                 <thead>
@@ -214,15 +240,37 @@ export class DataQuality {
     { initialValue: null },
   );
   readonly report = computed(() => this.s().quality.value);
-  readonly total = computed(() => this.report()?.summary.reduce((n, r) => n + r.issueCount, 0) ?? 0);
+  /** Issues over the rules that have a count; a rule without one is never taken as 0. */
+  readonly total = computed(() => this.report()?.summary.reduce((n, r) => n + (r.issueCount ?? 0), 0) ?? 0);
+  /** Rules without a count once counts exist (timed out or failed). */
+  readonly uncounted = computed(() => this.report()?.summary.filter((r) => r.issueCount === null).length ?? 0);
+  readonly ruleCounted = computed(() => {
+    const rule = this.rule();
+    return (this.report()?.summary.find((r) => r.rule === rule)?.issueCount ?? null) !== null;
+  });
   readonly ruleName = computed(() => {
     const rule = this.rule();
     return this.report()?.summary.find((r) => r.rule === rule)?.description ?? labelFor(rule);
   });
   readonly countOf = countOf;
   private focusIssues = false;
+  private recheck?: ReturnType<typeof setTimeout>;
 
   constructor() {
+    // While the server counts in the background, look again on our own so the counts appear without a
+    // click. Only the rules are re-read (no rule chosen): a chosen rule's issue page is not re-run.
+    effect(() => {
+      const r = this.report();
+      const loading = this.s().quality.loading;
+      const rule = this.rule();
+      untracked(() => {
+        clearTimeout(this.recheck);
+        if (r?.calculating && !loading && !rule && this.access() === 'admin') {
+          this.recheck = setTimeout(() => this.refresh(), RECHECK_MS);
+        }
+      });
+    });
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.recheck));
     // The report (and the chosen rule's first page) whenever the rule in the address changes.
     effect(() => {
       const rule = this.rule();
@@ -268,8 +316,8 @@ export class DataQuality {
   folio(f: string) {
     return formatFolio(f);
   }
-  time(v: string) {
-    return formatLocalTime(v);
+  time(v: string | null) {
+    return v ? formatLocalTime(v) : null;
   }
   place(i: DataQualityIssue) {
     return [i.sourceCounty, i.sourceState].filter(Boolean).join(', ');

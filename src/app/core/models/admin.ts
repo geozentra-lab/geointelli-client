@@ -19,7 +19,10 @@ export interface DataQualityRuleSummary {
   /** The table(s) the rule reads. */
   source: string;
   description: string;
-  issueCount: number;
+  /** Null before the first count ends, or when the rule could not be counted: never a guessed 0. */
+  issueCount: number | null;
+  /** Why issueCount is null; absent when the rule has a count. */
+  unavailableReason?: string;
 }
 export interface DataQualityIssue {
   /** Reproducible reference RULE:entityType:entityId. */
@@ -36,11 +39,15 @@ export interface DataQualityIssue {
   sourcePropertyId: number | null;
 }
 /**
- * GET /admin/data-quality/issues: every rule with its count (reused for a few minutes, see
- * generatedAt) and, with a rule, one page of its issues. Read-only: nothing is changed.
+ * GET /admin/data-quality/issues: every rule with its count (counted in the background and reused
+ * for a few minutes, see generatedAt) and, with a rule, one page of its issues. The server answers
+ * at once and never waits for a count (SCRUM-206). Read-only: nothing is changed.
  */
 export interface DataQualityReportDTO {
-  generatedAt: string;
+  /** When the returned counts were calculated; null before the first count ends. */
+  generatedAt: string | null;
+  /** True while the counts are being recalculated in the background. */
+  calculating: boolean;
   summary: DataQualityRuleSummary[];
   rule?: DataQualityRule;
   issues?: Page<DataQualityIssue>;
